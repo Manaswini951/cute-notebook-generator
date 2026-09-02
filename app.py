@@ -18,35 +18,26 @@ from PIL import (
 
 # Set page configuration for mobile devices
 st.set_page_config(
-    page_title="Cute Notebook Generator",
+    page_title="Custom Printable Notebook Generator",
     page_icon="📚",
     layout="centered"
 )
 
 # ============================================================
-# PRINT SETTINGS (A4 @ 300 DPI)
+# PAGE SIZE CONFIGURATIONS (300 DPI)
 # ============================================================
 
-A4_WIDTH = 2480
-A4_HEIGHT = 3508
+PAGE_SIZES = {
+    "A4 Standard (8.27 x 11.69 in)": {"width": 2480, "height": 3508},
+    "A5 Compact / Daily Journal (5.83 x 8.27 in)": {"width": 1748, "height": 2480},
+    "US Letter (8.5 x 11 in)": {"width": 2550, "height": 3300}
+}
+
 DPI = 300
 MAX_SIZE = 1800
 
-AUTO_STRAIGHTEN_DRAWING = True
-MAX_STRAIGHTEN_ANGLE = 18
-
-ADD_DECORATIONS = True
-ADD_STARS = True
-ADD_HEARTS = True
-ADD_FLOWERS = True
-ADD_SPARKLES = True
-ADD_GLITTER = True
-
-STAR_COUNT = 8
-HEART_COUNT = 6
-FLOWER_COUNT = 6
-SPARKLE_COUNT = 10
-GLITTER_COUNT = 40
+STAR_COUNT = 10
+SPARKLE_COUNT = 16
 
 # ============================================================
 # COLOR THEMES
@@ -103,35 +94,35 @@ PASTEL_THEMES = [
 DARK_THEMES = [
     {
         "name": "Midnight Galaxy",
-        "background": (35, 38, 75),
-        "accent": (255, 190, 80),
+        "background": (25, 28, 60),
+        "accent": (255, 200, 90),
         "text": (255, 255, 255),
-        "shape1": (90, 70, 160),
-        "shape2": (45, 110, 180)
+        "shape1": (80, 60, 150),
+        "shape2": (35, 90, 160)
     },
     {
         "name": "Ocean Night",
-        "background": (25, 70, 95),
-        "accent": (255, 210, 90),
+        "background": (18, 50, 75),
+        "accent": (255, 215, 110),
         "text": (255, 255, 255),
-        "shape1": (40, 150, 180),
-        "shape2": (80, 190, 200)
+        "shape1": (30, 120, 150),
+        "shape2": (60, 160, 180)
     },
     {
         "name": "Royal Purple",
-        "background": (65, 35, 105),
-        "accent": (255, 195, 100),
+        "background": (50, 25, 85),
+        "accent": (255, 205, 110),
         "text": (255, 255, 255),
-        "shape1": (145, 100, 210),
-        "shape2": (200, 160, 240)
+        "shape1": (120, 80, 180),
+        "shape2": (170, 130, 220)
     },
     {
         "name": "Berry Pop",
-        "background": (110, 35, 80),
-        "accent": (255, 205, 100),
+        "background": (85, 20, 60),
+        "accent": (255, 215, 110),
         "text": (255, 255, 255),
-        "shape1": (210, 80, 135),
-        "shape2": (245, 150, 180)
+        "shape1": (180, 60, 115),
+        "shape2": (220, 120, 160)
     }
 ]
 
@@ -258,7 +249,7 @@ def create_transparent_drawing(img):
     return padded
 
 # ============================================================
-# DECORATIONS & DRAWING HELPERS
+# DECORATIONS & SHAPES
 # ============================================================
 
 def draw_star(draw, x, y, size, color):
@@ -271,165 +262,213 @@ def draw_star(draw, x, y, size, color):
         points.append((px, py))
     draw.polygon(points, fill=color)
 
-def draw_heart(draw, x, y, size, color):
-    points = [
-        (x, y + size),
-        (x - size, y),
-        (x - size * 0.8, y - size * 0.7),
-        (x - size * 0.35, y - size),
-        (x, y - size * 0.5),
-        (x + size * 0.35, y - size),
-        (x + size * 0.8, y - size * 0.7),
-        (x + size, y)
-    ]
-    draw.polygon(points, fill=color)
-
 def draw_sparkle(draw, x, y, size, color):
-    width = max(2, int(size * 0.16))
+    width = max(2, int(size * 0.18))
     draw.line((x - size, y, x + size, y), fill=color, width=width)
     draw.line((x, y - size, x, y + size), fill=color, width=width)
 
-def add_decorations(page, theme, rng):
+def draw_bubble(draw, x, y, radius, color):
+    draw.ellipse((x - radius, y - radius, x + radius, y + radius), outline=color, width=4)
+    draw.ellipse((x - radius * 0.5, y - radius * 0.6, x - radius * 0.2, y - radius * 0.3), fill=color)
+
+def add_cover_decorations(page, theme, rng, page_w, page_h):
     draw = ImageDraw.Draw(page, "RGBA")
-    w, h = page.size
     accent = theme["accent"]
 
-    for _ in range(STAR_COUNT):
-        x = rng.choice([rng.randint(80, 300), rng.randint(w - 300, w - 80)])
-        y = rng.randint(100, h - 100)
-        draw_star(draw, x, y, rng.randint(25, 55), accent + (180,))
+    for _ in range(STAR_COUNT + 10):
+        x = rng.randint(80, page_w - 80)
+        y = rng.randint(80, page_h - 80)
+        draw_star(draw, x, y, rng.randint(15, 50), accent + (220,))
 
-    for _ in range(HEART_COUNT):
-        x = rng.choice([rng.randint(80, 300), rng.randint(w - 300, w - 80)])
-        y = rng.randint(100, h - 100)
-        draw_heart(draw, x, y, rng.randint(20, 45), accent + (160,))
+    for _ in range(SPARKLE_COUNT + 8):
+        x = rng.randint(60, page_w - 60)
+        y = rng.randint(60, page_h - 60)
+        draw_sparkle(draw, x, y, rng.randint(12, 35), (255, 255, 255, 230))
 
-    for _ in range(SPARKLE_COUNT):
-        x = rng.randint(100, w - 100)
-        y = rng.randint(100, h - 100)
-        draw_sparkle(draw, x, y, rng.randint(15, 35), (255, 255, 255, 200))
+    for _ in range(10):
+        x = rng.randint(100, page_w - 100)
+        y = rng.randint(100, page_h - 100)
+        draw_bubble(draw, x, y, rng.randint(20, 55), accent + (180,))
 
     return page
 
-# ============================================================
-# NOTEBOOK PAGE BUILDERS
-# ============================================================
-
-def create_lined_notebook_page(transparent_drawing, theme, page_num, seed):
-    rng = random.Random(seed + page_num)
-    page = Image.new("RGBA", (A4_WIDTH, A4_HEIGHT), theme["background"] + (255,))
-
-    # Add background shapes
-    draw = ImageDraw.Draw(page, "RGBA")
-    draw.ellipse((-300, -200, 800, 800), fill=theme["shape1"] + (120,))
-    draw.ellipse((A4_WIDTH - 700, A4_HEIGHT - 700, A4_WIDTH + 300, A4_HEIGHT + 300), fill=theme["shape2"] + (120,))
-
-    # Add background decorations
-    page = add_decorations(page, theme, rng)
-
-    # 1. Add Faded Watermark Drawing into Background
-    if transparent_drawing:
-        faded_drawing = transparent_drawing.copy()
-        
-        # Scale drawing to fit middle watermark area
-        max_wm_w, max_wm_h = int(A4_WIDTH * 0.65), int(A4_HEIGHT * 0.45)
-        scale = min(max_wm_w / faded_drawing.width, max_wm_h / faded_drawing.height)
-        new_wm_size = (int(faded_drawing.width * scale), int(faded_drawing.height * scale))
-        faded_drawing = faded_drawing.resize(new_wm_size, Image.Resampling.LANCZOS)
-
-        # Lower opacity to 20% (watermark)
-        alpha = faded_drawing.getchannel("A")
-        alpha = alpha.point(lambda p: int(p * 0.22))
-        faded_drawing.putalpha(alpha)
-
-        wm_x = (A4_WIDTH - faded_drawing.width) // 2
-        wm_y = (A4_HEIGHT - faded_drawing.height) // 2
-        page.alpha_composite(faded_drawing, (wm_x, wm_y))
-
-    # 2. Draw Writing Lines
-    draw = ImageDraw.Draw(page, "RGBA")
-    line_start_y = 450
-    line_end_y = A4_HEIGHT - 300
-    line_spacing = 90
-    margin_x = 220
-
-    for y in range(line_start_y, line_end_y, line_spacing):
-        draw.line((margin_x, y, A4_WIDTH - margin_x, y), fill=theme["line_color"] + (220,), width=3)
-
-    # Red vertical margin line
-    draw.line((margin_x, 350, margin_x, A4_HEIGHT - 200), fill=(240, 120, 120, 180), width=4)
-
-    # Header Date Box
-    draw.rounded_rectangle((A4_WIDTH - 650, 200, A4_WIDTH - 220, 320), radius=20, outline=theme["accent"] + (200,), width=3)
-    header_font = get_font(38, bold=True)
-    draw.text((A4_WIDTH - 620, 235), "DATE: ____ / ____ / ________", font=header_font, fill=theme["dark"])
-
-    # Page Number Footer
-    footer_font = get_font(36, bold=False)
-    draw.text(((A4_WIDTH) // 2 - 40, A4_HEIGHT - 180), f"- {page_num} -", font=footer_font, fill=theme["dark"])
-
-    return page.convert("RGB")
-
-def create_dark_cover_page(transparent_drawings, child_name, theme):
-    rng = random.Random(101)
-    cover = Image.new("RGBA", (A4_WIDTH, A4_HEIGHT), theme["background"] + (255,))
-    draw = ImageDraw.Draw(cover, "RGBA")
-
-    # Dark background accent shapes
-    draw.ellipse((-400, -300, 1200, 1100), fill=theme["shape1"] + (140,))
-    draw.ellipse((A4_WIDTH - 1100, A4_HEIGHT - 1200, A4_WIDTH + 400, A4_HEIGHT + 400), fill=theme["shape2"] + (140,))
-
-    # Title Block
-    title_font = get_font(110, bold=True)
-    subtitle_font = get_font(60, bold=False)
-    
-    title_text = "MY CREATIVE NOTEBOOK"
-    bbox = draw.textbbox((0, 0), title_text, font=title_font)
-    title_w = bbox[2] - bbox[0]
-    draw.text(((A4_WIDTH - title_w) // 2, 380), title_text, font=title_font, fill=theme["accent"])
-
-    if child_name:
-        name_text = f"Created by: {child_name}"
-        bbox_n = draw.textbbox((0, 0), name_text, font=subtitle_font)
-        name_w = bbox_n[2] - bbox_n[0]
-        draw.text(((A4_WIDTH - name_w) // 2, 530), name_text, font=subtitle_font, fill=theme["text"])
-
-    # Position All Images Together in Cover Center
-    if transparent_drawings:
-        count = len(transparent_drawings)
-        max_item_w = int(A4_WIDTH * 0.40)
-        max_item_h = int(A4_HEIGHT * 0.35)
-
-        positions = [
-            (A4_WIDTH // 2 - max_item_w // 2, A4_HEIGHT // 2 - max_item_h // 2),
-            (A4_WIDTH // 4 - 100, A4_HEIGHT // 2 - 250),
-            (3 * A4_WIDTH // 4 - max_item_w + 100, A4_HEIGHT // 2 - 250),
-            (A4_WIDTH // 4 - 100, A4_HEIGHT // 2 + 250),
-            (3 * A4_WIDTH // 4 - max_item_w + 100, A4_HEIGHT // 2 + 250)
-        ]
-
-        for i, img in enumerate(transparent_drawings[:5]):
-            resized_img = fit_drawing_cover(img, max_item_w, max_item_h)
-            pos = positions[i if i < len(positions) else 0]
-            cover.alpha_composite(resized_img, pos)
-
-    # Decorative frame line
-    draw.rounded_rectangle((80, 80, A4_WIDTH - 80, A4_HEIGHT - 80), radius=50, outline=theme["accent"] + (200,), width=10)
-
-    return cover.convert("RGB")
-
-def fit_drawing_cover(drawing, max_width, max_height):
+def fit_drawing(drawing, max_width, max_height):
     w, h = drawing.size
     scale = min(max_width / w, max_height / h)
     new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
     return drawing.resize(new_size, Image.Resampling.LANCZOS)
 
 # ============================================================
-# STREAMLIT UI
+# DYNAMIC COVER PAGE BUILDER
 # ============================================================
 
-st.title("📚 20-Page Custom Lined Notebook Generator")
-st.write("Upload drawing photos to create a 20-page printable lined notebook with faded background watermarks and a dark cover page!")
+def create_dynamic_cover_page(transparent_drawings, child_name, role_title, theme, seed, page_w, page_h):
+    rng = random.Random(seed)
+    cover = Image.new("RGBA", (page_w, page_h), theme["background"] + (255,))
+    draw = ImageDraw.Draw(cover, "RGBA")
+
+    # Dynamic Background Accents
+    shape_style = rng.choice(["bubbles", "waves", "geometrics"])
+    if shape_style == "bubbles":
+        for _ in range(8):
+            rx = rng.randint(-100, page_w + 100)
+            ry = rng.randint(-100, page_h + 100)
+            rad = rng.randint(int(page_w * 0.15), int(page_w * 0.35))
+            col = rng.choice([theme["shape1"], theme["shape2"]])
+            draw.ellipse((rx - rad, ry - rad, rx + rad, ry + rad), fill=col + (110,))
+    elif shape_style == "waves":
+        draw.ellipse((-int(page_w * 0.2), -int(page_h * 0.1), int(page_w * 0.6), int(page_h * 0.4)), fill=theme["shape1"] + (130,))
+        draw.ellipse((int(page_w * 0.4), int(page_h * 0.6), int(page_w * 1.2), int(page_h * 1.1)), fill=theme["shape2"] + (130,))
+    else:
+        draw.polygon([(0, 0), (int(page_w * 0.7), 0), (0, int(page_h * 0.5))], fill=theme["shape1"] + (140,))
+        draw.polygon([(page_w, page_h), (int(page_w * 0.3), page_h), (page_w, int(page_h * 0.5))], fill=theme["shape2"] + (140,))
+
+    cover = add_cover_decorations(cover, theme, rng, page_w, page_h)
+    draw = ImageDraw.Draw(cover, "RGBA")
+
+    # Border
+    border_inset = int(page_w * 0.035)
+    draw.rounded_rectangle(
+        (border_inset, border_inset, page_w - border_inset, page_h - border_inset),
+        radius=40, outline=theme["accent"] + (220,), width=8
+    )
+
+    # Dynamic Title Sizing
+    title_size = int(page_w * 0.045)
+    subtitle_size = int(page_w * 0.024)
+
+    title_font = get_font(title_size, bold=True)
+    subtitle_font = get_font(subtitle_size, bold=False)
+
+    notebook_title = "MY CREATIVE NOTEBOOK"
+    bbox = draw.textbbox((0, 0), notebook_title, font=title_font)
+    title_w = bbox[2] - bbox[0]
+    title_y = int(page_h * 0.11)
+
+    draw.text(((page_w - title_w) // 2 + 3, title_y + 3), notebook_title, font=title_font, fill=(0, 0, 0, 120))
+    draw.text(((page_w - title_w) // 2, title_y), notebook_title, font=title_font, fill=theme["accent"])
+
+    # Name & Role Badge Block
+    if child_name or role_title:
+        badge_w, badge_h = int(page_w * 0.65), int(page_h * 0.065)
+        bx1 = (page_w - badge_w) // 2
+        by1 = title_y + int(page_h * 0.05)
+        draw.rounded_rectangle((bx1, by1, bx1 + badge_w, by1 + badge_h), radius=25, fill=(0, 0, 0, 140), outline=theme["accent"] + (180,), width=3)
+
+        display_text = f"{child_name}" if child_name else "Notes & Ideas"
+        if role_title:
+            display_text += f" | {role_title}"
+
+        bbox_n = draw.textbbox((0, 0), display_text, font=subtitle_font)
+        name_w = bbox_n[2] - bbox_n[0]
+        draw.text(((page_w - name_w) // 2, by1 + int(badge_h * 0.25)), display_text, font=subtitle_font, fill=theme["text"])
+
+    # Center Drawing Compositions
+    if transparent_drawings:
+        max_item_w = int(page_w * 0.38)
+        max_item_h = int(page_h * 0.32)
+
+        positions = [
+            (page_w // 2 - max_item_w // 2, page_h // 2 - max_item_h // 2 + 50),
+            (page_w // 4 - 60, page_h // 2 - 180),
+            (3 * page_w // 4 - max_item_w + 60, page_h // 2 - 180),
+            (page_w // 4 - 60, page_h // 2 + 200),
+            (3 * page_w // 4 - max_item_w + 60, page_h // 2 + 200)
+        ]
+
+        for i, img in enumerate(transparent_drawings[:5]):
+            resized_img = fit_drawing(img, max_item_w, max_item_h)
+            pos = positions[i if i < len(positions) else 0]
+            cover.alpha_composite(resized_img, pos)
+
+    return cover.convert("RGB")
+
+# ============================================================
+# INTERIOR LINED PAGE BUILDER
+# ============================================================
+
+def create_lined_notebook_page(transparent_drawing, theme, page_num, seed, page_w, page_h, schedule_slots=None):
+    rng = random.Random(seed + page_num)
+    page = Image.new("RGBA", (page_w, page_h), theme["background"] + (255,))
+
+    draw = ImageDraw.Draw(page, "RGBA")
+    draw.ellipse((-int(page_w * 0.15), -int(page_h * 0.1), int(page_w * 0.4), int(page_h * 0.25)), fill=theme["shape1"] + (120,))
+    draw.ellipse((int(page_w * 0.7), int(page_h * 0.8), int(page_w * 1.2), int(page_h * 1.1)), fill=theme["shape2"] + (120,))
+
+    # Watermark Background Drawing
+    if transparent_drawing:
+        faded_drawing = transparent_drawing.copy()
+        max_wm_w, max_wm_h = int(page_w * 0.65), int(page_h * 0.45)
+        scale = min(max_wm_w / faded_drawing.width, max_wm_h / faded_drawing.height)
+        new_wm_size = (int(faded_drawing.width * scale), int(faded_drawing.height * scale))
+        faded_drawing = faded_drawing.resize(new_wm_size, Image.Resampling.LANCZOS)
+
+        alpha = faded_drawing.getchannel("A")
+        alpha = alpha.point(lambda p: int(p * 0.20))
+        faded_drawing.putalpha(alpha)
+
+        wm_x = (page_w - faded_drawing.width) // 2
+        wm_y = (page_h - faded_drawing.height) // 2
+        page.alpha_composite(faded_drawing, (wm_x, wm_y))
+
+    draw = ImageDraw.Draw(page, "RGBA")
+
+    # Header Sizing
+    header_font_size = int(page_w * 0.016)
+    slot_font_size = int(page_w * 0.012)
+    header_font = get_font(header_font_size, bold=True)
+
+    if schedule_slots:
+        box_x1, box_y1 = int(page_w * 0.07), int(page_h * 0.05)
+        box_x2, box_y2 = page_w - int(page_w * 0.07), int(page_h * 0.15)
+        draw.rounded_rectangle((box_x1, box_y1, box_x2, box_y2), radius=20, fill=(255, 255, 255, 220), outline=theme["accent"] + (200,), width=3)
+
+        draw.text((box_x1 + 20, box_y1 + 15), "TODAY'S SCHEDULE / PERIODS", font=header_font, fill=theme["dark"])
+        draw.text((box_x2 - int(page_w * 0.22), box_y1 + 15), "DATE: ____ / ____ / ____", font=header_font, fill=theme["dark"])
+
+        cols = 4 if len(schedule_slots) >= 8 else 3
+        col_w = (box_x2 - box_x1 - 30) // cols
+        row_h = int(page_h * 0.018)
+        slot_font = get_font(slot_font_size, bold=False)
+
+        for idx, slot in enumerate(schedule_slots[:12]):
+            c = idx % cols
+            r = idx // cols
+            sx = box_x1 + 15 + c * col_w
+            sy = box_y1 + int(page_h * 0.025) + r * row_h
+            
+            draw.rectangle((sx, sy, sx + col_w - 10, sy + row_h - 5), fill=theme["background"] + (180,), outline=theme["accent"] + (120,), width=2)
+            draw.text((sx + 8, sy + 4), str(slot), font=slot_font, fill=(60, 60, 60))
+
+        line_start_y = box_y2 + int(page_h * 0.02)
+    else:
+        draw.rounded_rectangle((page_w - int(page_w * 0.28), int(page_h * 0.05), page_w - int(page_w * 0.07), int(page_h * 0.085)), radius=15, fill=(255, 255, 255, 200), outline=theme["accent"] + (200,), width=3)
+        draw.text((page_w - int(page_w * 0.26), int(page_h * 0.06)), "DATE: ____ / ____ / ________", font=header_font, fill=theme["dark"])
+        line_start_y = int(page_h * 0.11)
+
+    # Lines Section
+    line_end_y = page_h - int(page_h * 0.07)
+    line_spacing = int(page_h * 0.025)
+    margin_x = int(page_w * 0.07)
+
+    for y in range(line_start_y, line_end_y, line_spacing):
+        draw.line((margin_x, y, page_w - margin_x, y), fill=theme["line_color"] + (220,), width=3)
+
+    # Red Margin Line
+    draw.line((margin_x, line_start_y - 20, margin_x, page_h - int(page_h * 0.05)), fill=(240, 120, 120, 180), width=4)
+
+    # Page Number
+    footer_font = get_font(int(page_w * 0.015), bold=False)
+    draw.text((page_w // 2 - 20, page_h - int(page_h * 0.04)), f"- {page_num} -", font=footer_font, fill=theme["dark"])
+
+    return page.convert("RGB")
+
+# ============================================================
+# STREAMLIT USER INTERFACE
+# ============================================================
+
+st.title("📚 Custom Printable Notebook Generator")
+st.write("Create custom printable lined notebooks with watermarks, sparkling cover pages, and optional daily schedules!")
 
 uploaded_files = st.file_uploader(
     "Choose drawing photos (JPG, PNG, WEBP):",
@@ -437,13 +476,83 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-child_name = st.text_input("Notebook Owner Name (e.g. Alex's Notebook):", "")
+st.subheader("📏 Page Size & Notebook Format")
+col_s1, col_s2 = st.columns(2)
+
+with col_s1:
+    chosen_size_label = st.selectbox("Select Page Size:", list(PAGE_SIZES.keys()))
+    page_dimensions = PAGE_SIZES[chosen_size_label]
+    PAGE_W, PAGE_H = page_dimensions["width"], page_dimensions["height"]
+
+with col_s2:
+    page_count_preset = st.selectbox(
+        "Select Number of Notebook Pages:",
+        ["Standard (20 Pages)", "Monthly Journal (30 Pages)", "Semester / Yearly (100 Pages)", "Custom Page Count"]
+    )
+
+if page_count_preset == "Standard (20 Pages)":
+    TOTAL_PAGES = 20
+elif page_count_preset == "Monthly Journal (30 Pages)":
+    TOTAL_PAGES = 30
+elif page_count_preset == "Semester / Yearly (100 Pages)":
+    TOTAL_PAGES = 100
+else:
+    TOTAL_PAGES = st.number_input("Enter Custom Page Count (1 to 200):", min_value=1, max_value=200, value=15)
+
+st.subheader("👤 Personalization & Profile")
+col_a, col_b = st.columns(2)
+with col_a:
+    child_name = st.text_input("Notebook Owner Name:", "Alex")
+with col_b:
+    role_type = st.selectbox(
+        "Who is this notebook for?",
+        ["Standard User", "School Student", "Office Worker", "PhD Student / Researcher", "Custom"]
+    )
+
+role_title = ""
+if role_type == "School Student":
+    role_title = "School Student"
+elif role_type == "Office Worker":
+    role_title = "Office Worker"
+elif role_type == "PhD Student / Researcher":
+    role_title = "PhD Researcher"
+elif role_type == "Custom":
+    role_title = st.text_input("Custom Title/Role:", "Creative Notes")
+
+# Optional Schedule
+st.subheader("⏰ Daily Schedule / Periods Block (Optional)")
+enable_schedule = st.checkbox("Include Schedule / Periods header on notebook pages?", value=False)
+
+schedule_slots = []
+if enable_schedule:
+    schedule_mode = st.radio(
+        "Choose Schedule Division Format:",
+        ["Hourly Intervals (e.g. 10:00 - 11:00)", "Periods (e.g. Period 1, Period 2)", "Custom Time Slots"]
+    )
+
+    if schedule_mode == "Hourly Intervals (e.g. 10:00 - 11:00)":
+        start_hour = st.number_input("Start Hour (24h format):", min_value=0, max_value=23, value=9)
+        total_hours = st.slider("Total Working Hours:", min_value=2, max_value=12, value=8)
+        for h in range(total_hours):
+            h1 = (start_hour + h) % 24
+            h2 = (start_hour + h + 1) % 24
+            schedule_slots.append(f"{h1:02d}:00 - {h2:02d}:00")
+
+    elif schedule_mode == "Periods (e.g. Period 1, Period 2)":
+        num_periods = st.slider("Number of Periods:", min_value=2, max_value=10, value=8)
+        period_length = st.selectbox("Period Duration:", ["40 mins", "45 mins", "50 mins", "60 mins"])
+        for p in range(1, num_periods + 1):
+            schedule_slots.append(f"P{p} ({period_length})")
+
+    else:
+        custom_input = st.text_area("Enter time slots separated by commas:", "10-11 AM, 11-12 PM, 12-1 PM, 2-3 PM, 3-4 PM")
+        schedule_slots = [s.strip() for s in custom_input.split(",") if s.strip()]
 
 if uploaded_files:
-    if st.button("🚀 Generate 20-Page Notebook PDF", type="primary", use_container_width=True):
+    if st.button(f"🚀 Generate {TOTAL_PAGES}-Page Notebook PDF", type="primary", use_container_width=True):
         processed_drawings = []
 
-        with st.spinner("Extracting drawings and cleaning backgrounds..."):
+        with st.spinner("Extracting drawings and removing background paper..."):
             for file_obj in uploaded_files:
                 raw_img = Image.open(file_obj)
                 raw_img = ImageOps.exif_transpose(raw_img).convert("RGB")
@@ -453,28 +562,36 @@ if uploaded_files:
 
         st.success(f"Processed {len(processed_drawings)} drawing(s) successfully!")
 
-        with st.spinner("Building 20 interior notebook pages and dark cover..."):
+        with st.spinner(f"Building dynamic cover and {TOTAL_PAGES} interior pages ({chosen_size_label})..."):
             all_pdf_pages = []
 
-            # 1. Build Cover Page (Dark Theme)
-            dark_theme = DARK_THEMES[0]
-            cover_page = create_dark_cover_page(processed_drawings, child_name, dark_theme)
+            # Cover Page
+            cover_seed = random.randint(1, 10000)
+            dark_theme = random.choice(DARK_THEMES)
+            cover_page = create_dynamic_cover_page(processed_drawings, child_name, role_title, dark_theme, cover_seed, PAGE_W, PAGE_H)
             all_pdf_pages.append(cover_page)
 
-            # 2. Build 20 Interior Lined Pages
-            for page_num in range(1, 21):
-                # Assign a drawing sequentially or randomly
+            # Interior Lined Pages
+            for page_num in range(1, TOTAL_PAGES + 1):
                 active_drawing = processed_drawings[(page_num - 1) % len(processed_drawings)]
                 pastel_theme = PASTEL_THEMES[(page_num - 1) % len(PASTEL_THEMES)]
-                seed = 500 + page_num
+                seed = 1000 + page_num
 
-                page_img = create_lined_notebook_page(active_drawing, pastel_theme, page_num, seed)
+                page_img = create_lined_notebook_page(
+                    active_drawing, pastel_theme, page_num, seed, PAGE_W, PAGE_H,
+                    schedule_slots=schedule_slots if enable_schedule else None
+                )
                 all_pdf_pages.append(page_img)
 
-        st.image(all_pdf_pages[0], caption="Cover Page Preview", use_container_width=True)
-        st.image(all_pdf_pages[1], caption="Sample Interior Lined Page (Page 1)", use_container_width=True)
+        # Previews
+        st.subheader("🖼️ Page Previews")
+        col_p1, col_p2 = st.columns(2)
+        with col_p1:
+            st.image(all_pdf_pages[0], caption="Dynamic Cover Page", use_container_width=True)
+        with col_p2:
+            st.image(all_pdf_pages[1], caption="Sample Interior Page (Page 1)", use_container_width=True)
 
-        # 3. Export PDF
+        # Export PDF
         pdf_buf = io.BytesIO()
         all_pdf_pages[0].save(
             pdf_buf,
@@ -484,11 +601,11 @@ if uploaded_files:
             append_images=all_pdf_pages[1:]
         )
 
-        st.subheader("📥 Download Your Printable Notebook")
+        st.subheader("📥 Download Your Printable PDF")
         st.download_button(
-            label="Download Complete 21-Page Notebook PDF (Cover + 20 Pages)",
+            label=f"Download Complete {TOTAL_PAGES + 1}-Page Notebook PDF",
             data=pdf_buf.getvalue(),
-            file_name="Custom_Lined_Notebook_20_Pages.pdf",
+            file_name=f"{child_name}_Custom_Notebook_{TOTAL_PAGES}_Pages.pdf",
             mime="application/pdf",
             use_container_width=True
         )
