@@ -36,8 +36,8 @@ PAGE_SIZES = {
 DPI = 300
 MAX_SIZE = 1800
 
-STAR_COUNT = 10
-SPARKLE_COUNT = 16
+STAR_COUNT = 14
+SPARKLE_COUNT = 20
 
 # ============================================================
 # COLOR THEMES
@@ -249,7 +249,7 @@ def create_transparent_drawing(img):
     return padded
 
 # ============================================================
-# DECORATIONS & SHAPES
+# DECORATIONS & LINE DRAWING HELPERS
 # ============================================================
 
 def draw_star(draw, x, y, size, color):
@@ -271,21 +271,37 @@ def draw_bubble(draw, x, y, radius, color):
     draw.ellipse((x - radius, y - radius, x + radius, y + radius), outline=color, width=4)
     draw.ellipse((x - radius * 0.5, y - radius * 0.6, x - radius * 0.2, y - radius * 0.3), fill=color)
 
+def draw_dashed_line(draw, x1, y1, x2, y2, fill, width=2, dash_len=18, gap_len=12):
+    total_len = math.hypot(x2 - x1, y2 - y1)
+    if total_len == 0:
+        return
+    dx = (x2 - x1) / total_len
+    dy = (y2 - y1) / total_len
+
+    curr = 0
+    while curr < total_len:
+        end = min(curr + dash_len, total_len)
+        draw.line(
+            (x1 + dx * curr, y1 + dy * curr, x1 + dx * end, y1 + dy * end),
+            fill=fill, width=width
+        )
+        curr += dash_len + gap_len
+
 def add_cover_decorations(page, theme, rng, page_w, page_h):
     draw = ImageDraw.Draw(page, "RGBA")
     accent = theme["accent"]
 
-    for _ in range(STAR_COUNT + 10):
+    for _ in range(STAR_COUNT):
         x = rng.randint(80, page_w - 80)
         y = rng.randint(80, page_h - 80)
         draw_star(draw, x, y, rng.randint(15, 50), accent + (220,))
 
-    for _ in range(SPARKLE_COUNT + 8):
+    for _ in range(SPARKLE_COUNT):
         x = rng.randint(60, page_w - 60)
         y = rng.randint(60, page_h - 60)
         draw_sparkle(draw, x, y, rng.randint(12, 35), (255, 255, 255, 230))
 
-    for _ in range(10):
+    for _ in range(12):
         x = rng.randint(100, page_w - 100)
         y = rng.randint(100, page_h - 100)
         draw_bubble(draw, x, y, rng.randint(20, 55), accent + (180,))
@@ -299,7 +315,7 @@ def fit_drawing(drawing, max_width, max_height):
     return drawing.resize(new_size, Image.Resampling.LANCZOS)
 
 # ============================================================
-# COVER PAGE BUILDER (MONTH & YEAR SUPPORT)
+# COVER PAGE BUILDER
 # ============================================================
 
 def create_dynamic_cover_page(transparent_drawings, child_name, role_title, month_str, year_str, theme, seed, page_w, page_h):
@@ -322,6 +338,27 @@ def create_dynamic_cover_page(transparent_drawings, child_name, role_title, mont
         draw.polygon([(0, 0), (int(page_w * 0.7), 0), (0, int(page_h * 0.5))], fill=theme["shape1"] + (140,))
         draw.polygon([(page_w, page_h), (int(page_w * 0.3), page_h), (page_w, int(page_h * 0.5))], fill=theme["shape2"] + (140,))
 
+    if transparent_drawings:
+        for idx in range(6):
+            base_img = rng.choice(transparent_drawings)
+            img = base_img.copy()
+
+            angle = rng.randint(-25, 25)
+            img = img.rotate(angle, resample=Image.Resampling.BICUBIC, expand=True)
+
+            target_w = rng.randint(int(page_w * 0.22), int(page_w * 0.38))
+            scale = target_w / float(img.width)
+            target_h = int(img.height * scale)
+            img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+
+            alpha = img.getchannel("A")
+            alpha = alpha.point(lambda p: int(p * 0.40))
+            img.putalpha(alpha)
+
+            x_pos = rng.randint(50, page_w - target_w - 50)
+            y_pos = rng.randint(80, page_h - target_h - 80)
+            cover.alpha_composite(img, (x_pos, y_pos))
+
     cover = add_cover_decorations(cover, theme, rng, page_w, page_h)
     draw = ImageDraw.Draw(cover, "RGBA")
 
@@ -342,14 +379,13 @@ def create_dynamic_cover_page(transparent_drawings, child_name, role_title, mont
     title_w = bbox[2] - bbox[0]
     title_y = int(page_h * 0.10)
 
-    draw.text(((page_w - title_w) // 2 + 3, title_y + 3), notebook_title, font=title_font, fill=(0, 0, 0, 120))
+    draw.text(((page_w - title_w) // 2 + 3, title_y + 3), notebook_title, font=title_font, fill=(0, 0, 0, 160))
     draw.text(((page_w - title_w) // 2, title_y), notebook_title, font=title_font, fill=theme["accent"])
 
-    # Owner, Role, Month & Year Badge
     badge_w, badge_h = int(page_w * 0.70), int(page_h * 0.08)
     bx1 = (page_w - badge_w) // 2
     by1 = title_y + int(page_h * 0.05)
-    draw.rounded_rectangle((bx1, by1, bx1 + badge_w, by1 + badge_h), radius=25, fill=(0, 0, 0, 140), outline=theme["accent"] + (180,), width=3)
+    draw.rounded_rectangle((bx1, by1, bx1 + badge_w, by1 + badge_h), radius=25, fill=(0, 0, 0, 180), outline=theme["accent"] + (220,), width=3)
 
     line_1 = f"{child_name}" if child_name else "Notes & Planner"
     if role_title:
@@ -370,33 +406,15 @@ def create_dynamic_cover_page(transparent_drawings, child_name, role_title, mont
         bbox_2 = draw.textbbox((0, 0), line_2, font=date_font)
         draw.text(((page_w - (bbox_2[2] - bbox_2[0])) // 2, by1 + int(badge_h * 0.55)), line_2, font=date_font, fill=theme["accent"])
 
-    # Center Drawing Compositions
-    if transparent_drawings:
-        max_item_w = int(page_w * 0.38)
-        max_item_h = int(page_h * 0.30)
-
-        positions = [
-            (page_w // 2 - max_item_w // 2, page_h // 2 - max_item_h // 2 + 60),
-            (page_w // 4 - 60, page_h // 2 - 180),
-            (3 * page_w // 4 - max_item_w + 60, page_h // 2 - 180),
-            (page_w // 4 - 60, page_h // 2 + 200),
-            (3 * page_w // 4 - max_item_w + 60, page_h // 2 + 200)
-        ]
-
-        for i, img in enumerate(transparent_drawings[:5]):
-            resized_img = fit_drawing(img, max_item_w, max_item_h)
-            pos = positions[i if i < len(positions) else 0]
-            cover.alpha_composite(resized_img, pos)
-
     return cover.convert("RGB")
 
 # ============================================================
-# INTERIOR PAGE BUILDER (SEGMENTED SCHEDULE & COMPARTMENTS)
+# INTERIOR PAGE BUILDER (TRANSPARENT BOXES & LINE STYLES)
 # ============================================================
 
 def create_lined_notebook_page(
     transparent_drawing, theme, page_num, seed, page_w, page_h,
-    schedule_slots=None, custom_compartment=None
+    page_style="Solid Ruled Lines", schedule_slots=None, custom_compartment=None
 ):
     rng = random.Random(seed + page_num)
     page = Image.new("RGBA", (page_w, page_h), theme["background"] + (255,))
@@ -405,7 +423,7 @@ def create_lined_notebook_page(
     draw.ellipse((-int(page_w * 0.15), -int(page_h * 0.1), int(page_w * 0.4), int(page_h * 0.25)), fill=theme["shape1"] + (120,))
     draw.ellipse((int(page_w * 0.7), int(page_h * 0.8), int(page_w * 1.2), int(page_h * 1.1)), fill=theme["shape2"] + (120,))
 
-    # Watermark Background Drawing
+    # Interior Watermark (10% Opacity)
     if transparent_drawing:
         faded_drawing = transparent_drawing.copy()
         max_wm_w, max_wm_h = int(page_w * 0.65), int(page_h * 0.45)
@@ -414,7 +432,7 @@ def create_lined_notebook_page(
         faded_drawing = faded_drawing.resize(new_wm_size, Image.Resampling.LANCZOS)
 
         alpha = faded_drawing.getchannel("A")
-        alpha = alpha.point(lambda p: int(p * 0.18))
+        alpha = alpha.point(lambda p: int(p * 0.10))
         faded_drawing.putalpha(alpha)
 
         wm_x = (page_w - faded_drawing.width) // 2
@@ -423,21 +441,20 @@ def create_lined_notebook_page(
 
     draw = ImageDraw.Draw(page, "RGBA")
 
-    # Header Bar
+    # Header Bar (Semi-Transparent Box)
     header_font = get_font(int(page_w * 0.016), bold=True)
     draw.rounded_rectangle(
         (page_w - int(page_w * 0.28), int(page_h * 0.04), page_w - int(page_w * 0.06), int(page_h * 0.075)),
-        radius=12, fill=(255, 255, 255, 200), outline=theme["accent"] + (200,), width=3
+        radius=12, fill=(255, 255, 255, 90), outline=theme["accent"] + (200,), width=3
     )
     draw.text((page_w - int(page_w * 0.26), int(page_h * 0.048)), "DATE: ____ / ____ / ________", font=header_font, fill=theme["dark"])
 
-    # Define Writing Space Margins
     top_y = int(page_h * 0.09)
     bottom_y = page_h - int(page_h * 0.06)
     margin_left = int(page_w * 0.07)
     margin_right = page_w - int(page_w * 0.07)
 
-    # Process Custom Compartment Box Placement if active
+    # Custom Compartment Box (Semi-Transparent)
     if custom_compartment and custom_compartment.get("title"):
         title_text = custom_compartment["title"].upper()
         height_pct = custom_compartment.get("height_pct", 0.20)
@@ -449,20 +466,30 @@ def create_lined_notebook_page(
         if pos == "Top of Page":
             cy1, cy2 = top_y, top_y + comp_h
             top_y = cy2 + int(page_h * 0.02)
-            draw.rounded_rectangle((margin_left, cy1, margin_right, cy2), radius=15, fill=(255, 255, 255, 210), outline=theme["accent"] + (180,), width=3)
+            draw.rounded_rectangle((margin_left, cy1, margin_right, cy2), radius=15, fill=(255, 255, 255, 70), outline=theme["accent"] + (180,), width=3)
             draw.text((margin_left + 15, cy1 + 12), f"📌 {title_text}", font=c_font, fill=theme["dark"])
-            for line_y in range(cy1 + int(page_h * 0.035), cy2 - 10, int(page_h * 0.025)):
-                draw.line((margin_left + 15, line_y, margin_right - 15, line_y), fill=theme["line_color"] + (180,), width=2)
+            
+            if page_style != "Plain / Unruled Pages":
+                for line_y in range(cy1 + int(page_h * 0.035), cy2 - 10, int(page_h * 0.025)):
+                    if page_style == "Dashed Lines":
+                        draw_dashed_line(draw, margin_left + 15, line_y, margin_right - 15, line_y, fill=theme["line_color"] + (180,), width=2)
+                    else:
+                        draw.line((margin_left + 15, line_y, margin_right - 15, line_y), fill=theme["line_color"] + (180,), width=2)
 
         elif pos == "Bottom of Page":
             cy1, cy2 = bottom_y - comp_h, bottom_y
             bottom_y = cy1 - int(page_h * 0.02)
-            draw.rounded_rectangle((margin_left, cy1, margin_right, cy2), radius=15, fill=(255, 255, 255, 210), outline=theme["accent"] + (180,), width=3)
+            draw.rounded_rectangle((margin_left, cy1, margin_right, cy2), radius=15, fill=(255, 255, 255, 70), outline=theme["accent"] + (180,), width=3)
             draw.text((margin_left + 15, cy1 + 12), f"📌 {title_text}", font=c_font, fill=theme["dark"])
-            for line_y in range(cy1 + int(page_h * 0.035), cy2 - 10, int(page_h * 0.025)):
-                draw.line((margin_left + 15, line_y, margin_right - 15, line_y), fill=theme["line_color"] + (180,), width=2)
+            
+            if page_style != "Plain / Unruled Pages":
+                for line_y in range(cy1 + int(page_h * 0.035), cy2 - 10, int(page_h * 0.025)):
+                    if page_style == "Dashed Lines":
+                        draw_dashed_line(draw, margin_left + 15, line_y, margin_right - 15, line_y, fill=theme["line_color"] + (180,), width=2)
+                    else:
+                        draw.line((margin_left + 15, line_y, margin_right - 15, line_y), fill=theme["line_color"] + (180,), width=2)
 
-    # Mode 1: Full-Page Segmented Schedule Boxes
+    # Segmented Schedule Compartments (Semi-Transparent Fill)
     if schedule_slots and len(schedule_slots) > 0:
         num_slots = len(schedule_slots)
         available_height = bottom_y - top_y
@@ -476,30 +503,35 @@ def create_lined_notebook_page(
             by1 = top_y + idx * (box_h + box_gap)
             by2 = by1 + box_h
 
-            # Outer Slot Box
-            draw.rounded_rectangle((margin_left, by1, margin_right, by2), radius=12, fill=(255, 255, 255, 215), outline=theme["accent"] + (180,), width=2)
-
-            # Left Label Banner
-            draw.rounded_rectangle((margin_left, by1, margin_left + slot_label_w, by2), radius=12, fill=theme["background"] + (230,), outline=theme["accent"] + (150,), width=2)
+            # Semi-transparent schedule compartment boxes (Alpha = 65)
+            draw.rounded_rectangle((margin_left, by1, margin_right, by2), radius=12, fill=(255, 255, 255, 65), outline=theme["accent"] + (180,), width=2)
+            draw.rounded_rectangle((margin_left, by1, margin_left + slot_label_w, by2), radius=12, fill=theme["background"] + (140,), outline=theme["accent"] + (150,), width=2)
             draw.text((margin_left + 12, by1 + int(box_h * 0.25)), str(slot), font=label_font, fill=theme["dark"])
 
-            # Ruled lines inside writing compartment
             write_x1 = margin_left + slot_label_w + 15
             write_x2 = margin_right - 15
             line_step = int(page_h * 0.022)
-            for line_y in range(by1 + line_step, by2 - 5, line_step):
-                draw.line((write_x1, line_y, write_x2, line_y), fill=theme["line_color"] + (180,), width=2)
 
-    # Mode 2: Standard Lined Notebook Page
+            if page_style != "Plain / Unruled Pages":
+                for line_y in range(by1 + line_step, by2 - 5, line_step):
+                    if page_style == "Dashed Lines":
+                        draw_dashed_line(draw, write_x1, line_y, write_x2, line_y, fill=theme["line_color"] + (180,), width=2)
+                    else:
+                        draw.line((write_x1, line_y, write_x2, line_y), fill=theme["line_color"] + (180,), width=2)
+
+    # Standard Lined / Unruled Pages
     else:
-        line_spacing = int(page_h * 0.025)
-        for y in range(top_y, bottom_y, line_spacing):
-            draw.line((margin_left, y, margin_right, y), fill=theme["line_color"] + (220,), width=3)
+        if page_style != "Plain / Unruled Pages":
+            line_spacing = int(page_h * 0.025)
+            for y in range(top_y, bottom_y, line_spacing):
+                if page_style == "Dashed Lines":
+                    draw_dashed_line(draw, margin_left, y, margin_right, y, fill=theme["line_color"] + (220,), width=2)
+                else:
+                    draw.line((margin_left, y, margin_right, y), fill=theme["line_color"] + (220,), width=3)
 
         # Red Vertical Margin Line
         draw.line((margin_left, top_y - 10, margin_left, bottom_y + 10), fill=(240, 120, 120, 180), width=4)
 
-    # Page Footer Number
     footer_font = get_font(int(page_w * 0.015), bold=False)
     draw.text((page_w // 2 - 20, page_h - int(page_h * 0.035)), f"- {page_num} -", font=footer_font, fill=theme["dark"])
 
@@ -510,7 +542,7 @@ def create_lined_notebook_page(
 # ============================================================
 
 st.title("📚 Custom Notebook & Daily Planner Generator")
-st.write("Upload drawings to generate custom printable notebooks with watermarks, dark cover pages, segmented schedule compartments, and flexible page formats!")
+st.write("Upload drawings to generate custom printable notebooks with watermarks, dark cover pages, transparent schedule compartments, and flexible page formats!")
 
 uploaded_files = st.file_uploader(
     "Choose drawing photos (JPG, PNG, WEBP):",
@@ -518,8 +550,8 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-st.subheader("📏 Page Size & Notebook Format")
-col_s1, col_s2 = st.columns(2)
+st.subheader("📏 Page Size & Page Style")
+col_s1, col_s2, col_s3 = st.columns(3)
 
 with col_s1:
     chosen_size_label = st.selectbox("Select Page Size:", list(PAGE_SIZES.keys()))
@@ -527,6 +559,12 @@ with col_s1:
     PAGE_W, PAGE_H = page_dimensions["width"], page_dimensions["height"]
 
 with col_s2:
+    page_style = st.selectbox(
+        "Page Line Style:",
+        ["Solid Ruled Lines", "Dashed Lines", "Plain / Unruled Pages"]
+    )
+
+with col_s3:
     page_count_preset = st.selectbox(
         "Select Number of Pages:",
         ["Standard (20 Pages)", "Monthly Journal (30 Pages)", "Semester / Yearly (100 Pages)", "Custom Page Count"]
@@ -563,13 +601,13 @@ elif role_type == "PhD Student / Researcher":
 elif role_type == "Custom":
     role_title = st.text_input("Custom Title/Role:", "Creative Notes")
 
-# Segmented Daily Schedule
+# Segmented Schedule Options
 st.subheader("⏰ Segmented Daily Schedule / Time Compartments")
-enable_schedule = st.checkbox("Divide entire page into time compartments / schedule boxes?", value=False)
+enable_schedule = st.checkbox("Divide entire page into transparent time compartments / schedule boxes?", value=False)
 
 schedule_slots = []
 if enable_schedule:
-    st.info("Each page will be divided into dedicated boxes for each time slot to write plans or logs.")
+    st.info("Each page will be divided into semi-transparent boxes for each time slot so background watermarks stay visible.")
     schedule_mode = st.radio(
         "Choose Time Division Format:",
         ["Hourly Intervals (e.g. 09:00 - 10:00)", "Periods (e.g. Period 1, Period 2)", "Custom Time Slots"]
@@ -648,6 +686,7 @@ if uploaded_files:
 
                 page_img = create_lined_notebook_page(
                     active_drawing, pastel_theme, page_num, seed, PAGE_W, PAGE_H,
+                    page_style=page_style,
                     schedule_slots=schedule_slots if enable_schedule else None,
                     custom_compartment=custom_compartment if enable_custom_comp else None
                 )
