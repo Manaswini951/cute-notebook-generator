@@ -409,7 +409,7 @@ def create_dynamic_cover_page(transparent_drawings, child_name, role_title, mont
     return cover.convert("RGB")
 
 # ============================================================
-# INTERIOR PAGE BUILDER (TRANSPARENT BOXES & LINE STYLES)
+# INTERIOR PAGE BUILDER (TRANSPARENT LAYERS + CLEAR DRAWING OVERLAY)
 # ============================================================
 
 def create_lined_notebook_page(
@@ -417,44 +417,32 @@ def create_lined_notebook_page(
     page_style="Solid Ruled Lines", schedule_slots=None, custom_compartment=None
 ):
     rng = random.Random(seed + page_num)
+    
+    # 1. Base Pastel Page Background
     page = Image.new("RGBA", (page_w, page_h), theme["background"] + (255,))
-
     draw = ImageDraw.Draw(page, "RGBA")
     draw.ellipse((-int(page_w * 0.15), -int(page_h * 0.1), int(page_w * 0.4), int(page_h * 0.25)), fill=theme["shape1"] + (120,))
     draw.ellipse((int(page_w * 0.7), int(page_h * 0.8), int(page_w * 1.2), int(page_h * 1.1)), fill=theme["shape2"] + (120,))
 
-    # Interior Watermark (10% Opacity)
-    if transparent_drawing:
-        faded_drawing = transparent_drawing.copy()
-        max_wm_w, max_wm_h = int(page_w * 0.65), int(page_h * 0.45)
-        scale = min(max_wm_w / faded_drawing.width, max_wm_h / faded_drawing.height)
-        new_wm_size = (int(faded_drawing.width * scale), int(faded_drawing.height * scale))
-        faded_drawing = faded_drawing.resize(new_wm_size, Image.Resampling.LANCZOS)
-
-        alpha = faded_drawing.getchannel("A")
-        alpha = alpha.point(lambda p: int(p * 0.10))
-        faded_drawing.putalpha(alpha)
-
-        wm_x = (page_w - faded_drawing.width) // 2
-        wm_y = (page_h - faded_drawing.height) // 2
-        page.alpha_composite(faded_drawing, (wm_x, wm_y))
-
-    draw = ImageDraw.Draw(page, "RGBA")
-
-    # Header Bar (Semi-Transparent Box)
-    header_font = get_font(int(page_w * 0.016), bold=True)
-    draw.rounded_rectangle(
-        (page_w - int(page_w * 0.28), int(page_h * 0.04), page_w - int(page_w * 0.06), int(page_h * 0.075)),
-        radius=12, fill=(255, 255, 255, 90), outline=theme["accent"] + (200,), width=3
-    )
-    draw.text((page_w - int(page_w * 0.26), int(page_h * 0.048)), "DATE: ____ / ____ / ________", font=header_font, fill=theme["dark"])
-
+    # Margins and Header Bounds
     top_y = int(page_h * 0.09)
     bottom_y = page_h - int(page_h * 0.06)
     margin_left = int(page_w * 0.07)
     margin_right = page_w - int(page_w * 0.07)
 
-    # Custom Compartment Box (Semi-Transparent)
+    # 2. Transparent Box Overlay Layer
+    box_layer = Image.new("RGBA", (page_w, page_h), (0, 0, 0, 0))
+    box_draw = ImageDraw.Draw(box_layer, "RGBA")
+
+    # Header Bar Box (Alpha = 60)
+    header_font = get_font(int(page_w * 0.016), bold=True)
+    box_draw.rounded_rectangle(
+        (page_w - int(page_w * 0.28), int(page_h * 0.04), page_w - int(page_w * 0.06), int(page_h * 0.075)),
+        radius=12, fill=(255, 255, 255, 60), outline=theme["accent"] + (180,), width=3
+    )
+    box_draw.text((page_w - int(page_w * 0.26), int(page_h * 0.048)), "DATE: ____ / ____ / ________", font=header_font, fill=theme["dark"])
+
+    # Custom Compartment Box (Alpha = 45)
     if custom_compartment and custom_compartment.get("title"):
         title_text = custom_compartment["title"].upper()
         height_pct = custom_compartment.get("height_pct", 0.20)
@@ -466,30 +454,30 @@ def create_lined_notebook_page(
         if pos == "Top of Page":
             cy1, cy2 = top_y, top_y + comp_h
             top_y = cy2 + int(page_h * 0.02)
-            draw.rounded_rectangle((margin_left, cy1, margin_right, cy2), radius=15, fill=(255, 255, 255, 70), outline=theme["accent"] + (180,), width=3)
-            draw.text((margin_left + 15, cy1 + 12), f"📌 {title_text}", font=c_font, fill=theme["dark"])
+            box_draw.rounded_rectangle((margin_left, cy1, margin_right, cy2), radius=15, fill=(255, 255, 255, 45), outline=theme["accent"] + (180,), width=3)
+            box_draw.text((margin_left + 15, cy1 + 12), f"📌 {title_text}", font=c_font, fill=theme["dark"])
             
             if page_style != "Plain / Unruled Pages":
                 for line_y in range(cy1 + int(page_h * 0.035), cy2 - 10, int(page_h * 0.025)):
                     if page_style == "Dashed Lines":
-                        draw_dashed_line(draw, margin_left + 15, line_y, margin_right - 15, line_y, fill=theme["line_color"] + (180,), width=2)
+                        draw_dashed_line(box_draw, margin_left + 15, line_y, margin_right - 15, line_y, fill=theme["line_color"] + (180,), width=2)
                     else:
-                        draw.line((margin_left + 15, line_y, margin_right - 15, line_y), fill=theme["line_color"] + (180,), width=2)
+                        box_draw.line((margin_left + 15, line_y, margin_right - 15, line_y), fill=theme["line_color"] + (180,), width=2)
 
         elif pos == "Bottom of Page":
             cy1, cy2 = bottom_y - comp_h, bottom_y
             bottom_y = cy1 - int(page_h * 0.02)
-            draw.rounded_rectangle((margin_left, cy1, margin_right, cy2), radius=15, fill=(255, 255, 255, 70), outline=theme["accent"] + (180,), width=3)
-            draw.text((margin_left + 15, cy1 + 12), f"📌 {title_text}", font=c_font, fill=theme["dark"])
+            box_draw.rounded_rectangle((margin_left, cy1, margin_right, cy2), radius=15, fill=(255, 255, 255, 45), outline=theme["accent"] + (180,), width=3)
+            box_draw.text((margin_left + 15, cy1 + 12), f"📌 {title_text}", font=c_font, fill=theme["dark"])
             
             if page_style != "Plain / Unruled Pages":
                 for line_y in range(cy1 + int(page_h * 0.035), cy2 - 10, int(page_h * 0.025)):
                     if page_style == "Dashed Lines":
-                        draw_dashed_line(draw, margin_left + 15, line_y, margin_right - 15, line_y, fill=theme["line_color"] + (180,), width=2)
+                        draw_dashed_line(box_draw, margin_left + 15, line_y, margin_right - 15, line_y, fill=theme["line_color"] + (180,), width=2)
                     else:
-                        draw.line((margin_left + 15, line_y, margin_right - 15, line_y), fill=theme["line_color"] + (180,), width=2)
+                        box_draw.line((margin_left + 15, line_y, margin_right - 15, line_y), fill=theme["line_color"] + (180,), width=2)
 
-    # Segmented Schedule Compartments (Semi-Transparent Fill)
+    # Segmented Schedule Boxes (Alpha = 35)
     if schedule_slots and len(schedule_slots) > 0:
         num_slots = len(schedule_slots)
         available_height = bottom_y - top_y
@@ -503,10 +491,10 @@ def create_lined_notebook_page(
             by1 = top_y + idx * (box_h + box_gap)
             by2 = by1 + box_h
 
-            # Semi-transparent schedule compartment boxes (Alpha = 65)
-            draw.rounded_rectangle((margin_left, by1, margin_right, by2), radius=12, fill=(255, 255, 255, 65), outline=theme["accent"] + (180,), width=2)
-            draw.rounded_rectangle((margin_left, by1, margin_left + slot_label_w, by2), radius=12, fill=theme["background"] + (140,), outline=theme["accent"] + (150,), width=2)
-            draw.text((margin_left + 12, by1 + int(box_h * 0.25)), str(slot), font=label_font, fill=theme["dark"])
+            # Transparent outer box fill (35) + outline
+            box_draw.rounded_rectangle((margin_left, by1, margin_right, by2), radius=12, fill=(255, 255, 255, 35), outline=theme["accent"] + (180,), width=2)
+            box_draw.rounded_rectangle((margin_left, by1, margin_left + slot_label_w, by2), radius=12, fill=theme["background"] + (110,), outline=theme["accent"] + (150,), width=2)
+            box_draw.text((margin_left + 12, by1 + int(box_h * 0.25)), str(slot), font=label_font, fill=theme["dark"])
 
             write_x1 = margin_left + slot_label_w + 15
             write_x2 = margin_right - 15
@@ -515,25 +503,43 @@ def create_lined_notebook_page(
             if page_style != "Plain / Unruled Pages":
                 for line_y in range(by1 + line_step, by2 - 5, line_step):
                     if page_style == "Dashed Lines":
-                        draw_dashed_line(draw, write_x1, line_y, write_x2, line_y, fill=theme["line_color"] + (180,), width=2)
+                        draw_dashed_line(box_draw, write_x1, line_y, write_x2, line_y, fill=theme["line_color"] + (180,), width=2)
                     else:
-                        draw.line((write_x1, line_y, write_x2, line_y), fill=theme["line_color"] + (180,), width=2)
+                        box_draw.line((write_x1, line_y, write_x2, line_y), fill=theme["line_color"] + (180,), width=2)
 
-    # Standard Lined / Unruled Pages
+    # Standard Ruled Lines
     else:
         if page_style != "Plain / Unruled Pages":
             line_spacing = int(page_h * 0.025)
             for y in range(top_y, bottom_y, line_spacing):
                 if page_style == "Dashed Lines":
-                    draw_dashed_line(draw, margin_left, y, margin_right, y, fill=theme["line_color"] + (220,), width=2)
+                    draw_dashed_line(box_draw, margin_left, y, margin_right, y, fill=theme["line_color"] + (220,), width=2)
                 else:
-                    draw.line((margin_left, y, margin_right, y), fill=theme["line_color"] + (220,), width=3)
+                    box_draw.line((margin_left, y, margin_right, y), fill=theme["line_color"] + (220,), width=3)
 
-        # Red Vertical Margin Line
-        draw.line((margin_left, top_y - 10, margin_left, bottom_y + 10), fill=(240, 120, 120, 180), width=4)
+        box_draw.line((margin_left, top_y - 10, margin_left, bottom_y + 10), fill=(240, 120, 120, 180), width=4)
 
     footer_font = get_font(int(page_w * 0.015), bold=False)
-    draw.text((page_w // 2 - 20, page_h - int(page_h * 0.035)), f"- {page_num} -", font=footer_font, fill=theme["dark"])
+    box_draw.text((page_w // 2 - 20, page_h - int(page_h * 0.035)), f"- {page_num} -", font=footer_font, fill=theme["dark"])
+
+    # Composite Box Layer onto Page
+    page.alpha_composite(box_layer)
+
+    # 3. Render Drawing Watermark ON TOP of the Boxes (22% Opacity Prominence)
+    if transparent_drawing:
+        faded_drawing = transparent_drawing.copy()
+        max_wm_w, max_wm_h = int(page_w * 0.65), int(page_h * 0.45)
+        scale = min(max_wm_w / faded_drawing.width, max_wm_h / faded_drawing.height)
+        new_wm_size = (int(faded_drawing.width * scale), int(faded_drawing.height * scale))
+        faded_drawing = faded_drawing.resize(new_wm_size, Image.Resampling.LANCZOS)
+
+        alpha = faded_drawing.getchannel("A")
+        alpha = alpha.point(lambda p: int(p * 0.22))  # Enhanced 22% Opacity
+        faded_drawing.putalpha(alpha)
+
+        wm_x = (page_w - faded_drawing.width) // 2
+        wm_y = (page_h - faded_drawing.height) // 2
+        page.alpha_composite(faded_drawing, (wm_x, wm_y))
 
     return page.convert("RGB")
 
