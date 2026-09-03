@@ -34,7 +34,9 @@ PAGE_SIZES = {
 }
 
 DPI = 300
-MAX_SIZE = 1600
+MAX_SIZE = 1800
+AUTO_STRAIGHTEN_DRAWING = True
+MAX_STRAIGHTEN_ANGLE = 18
 
 # ============================================================
 # COLOR THEMES
@@ -162,7 +164,7 @@ def get_font(size, bold=False):
         return ImageFont.load_default()
 
 # ============================================================
-# OPENCV BACKGROUND EXTRACTION
+# RESTORED EXTRACTION ALGORITHM (SHADOW-IMMUNE)
 # ============================================================
 
 def resize_image(img, max_size=MAX_SIZE):
@@ -191,16 +193,19 @@ def extract_clean_drawing_mask(img_rgb):
     hsv = cv2.cvtColor(arr, cv2.COLOR_RGB2HSV)
     sat = hsv[:, :, 1].astype(np.float32)
 
+    # 1. Estimate Paper / Background
     bg_size = max(61, int(min(h, w) * 0.10))
     if bg_size % 2 == 0:
         bg_size += 1
     bg_gray = cv2.GaussianBlur(gray, (bg_size, bg_size), 0)
     local_darkness = bg_gray.astype(np.float32) - gray.astype(np.float32)
 
+    # 2. Local Color Difference
     sat_blur = cv2.GaussianBlur(sat, (35, 35), 0)
     color_difference = np.abs(sat - sat_blur)
     color_mask = np.where((sat > 38) | (color_difference > 14), 255, 0).astype(np.uint8)
 
+    # 3. Black-Hat for Dark Strokes
     bh_size = max(21, int(min(h, w) * 0.035))
     if bh_size % 2 == 0:
         bh_size += 1
@@ -208,16 +213,22 @@ def extract_clean_drawing_mask(img_rgb):
     blackhat = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, bh_kernel)
     blackhat_mask = np.where(blackhat > 10, 255, 0).astype(np.uint8)
 
+    # 4. Local Gradient / Structure
     grad_x = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
     grad_y = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
     magnitude = cv2.magnitude(grad_x, grad_y)
     edge_mask = np.where(magnitude > 24.0, 255, 0).astype(np.uint8)
 
+    # 5. Relative Dark Mask
     relative_dark_mask = np.where(local_darkness > 13.0, 255, 0).astype(np.uint8)
+    strong_relative_dark = np.where(local_darkness > 24.0, 255, 0).astype(np.uint8)
+
+    # 6. Build Initial Seeds
     seeds = cv2.bitwise_or(relative_dark_mask, blackhat_mask)
     seeds = cv2.bitwise_or(seeds, color_mask)
     seeds = cv2.bitwise_or(seeds, edge_mask)
 
+    # 7. Preserve Dark Inks Near Real Edges
     very_dark = np.where(gray < 85, 255, 0).astype(np.uint8)
     structure_kernel_size = max(9, int(min(h, w) * 0.012))
     if structure_kernel_size % 2 == 0:
@@ -227,6 +238,7 @@ def extract_clean_drawing_mask(img_rgb):
     protected_dark = cv2.bitwise_and(very_dark, nearby_structure)
     seeds = cv2.bitwise_or(seeds, protected_dark)
 
+    # 8. Close Real Regions
     close_size = max(5, int(min(h, w) * 0.008))
     if close_size % 2 == 0:
         close_size += 1
@@ -234,7 +246,23 @@ def extract_clean_drawing_mask(img_rgb):
     mask = cv2.morphologyEx(seeds, cv2.MORPH_CLOSE, close_kernel, iterations=1)
     mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)), iterations=1)
 
+    # 9. Suppress Smooth Shadows (Texture Invariant)
+    local_mean = cv2.GaussianBlur(gray, (31, 31), 0)
+    local_difference = cv2.absdiff(gray, local_mean)
+    texture_signal = np.where(local_difference > 7, 255, 0).astype(np.uint8)
+
+    smooth_shadow = (
+        (mask > 0) &
+        (texture_signal == 0) &
+        (color_mask == 0) &
+        (strong_relative_dark == 0)
+    )
+    mask[smooth_shadow] = 0
+
+    # 10. Component Noise Filtering
     mask = remove_small_components(mask, min_area=18)
+
+    # 11. Clear Camera Margins
     bw = max(6, int(min(h, w) * 0.004))
     mask[:bw, :] = 0
     mask[-bw:, :] = 0
@@ -243,12 +271,43 @@ def extract_clean_drawing_mask(img_rgb):
 
     return mask
 
+def straighten_drawing(image):
+    if not AUTO_STRAIGHTEN_DRAWING:
+        return image
+    alpha = np.array(image.getchannel("A"))
+    ys, xs = np.where(alpha > 50)
+    if len(xs) < 100:
+        return image
+    points = np.column_stack((xs, ys)).astype(np.float32)
+    try:
+        _, eigenvectors = cv2.PCACompute(points, mean=None)
+        vector = eigenvectors[0]
+        angle = math.degrees(math.atan2(vector[1], vector[0]))
+        bbox_w = xs.max() - xs.min()
+        bbox_h = ys.max() - ys.min()
+        if bbox_h >= bbox_w:
+            correction = (90 - angle) if angle > 0 else (-90 - angle)
+        else:
+            correction = -angle
+
+        while correction > 90:
+            correction -= 180
+        while correction < -90:
+            correction += 180
+
+        if abs(correction) <= MAX_STRAIGHTEN_ANGLE:
+            image = image.rotate(correction, resample=Image.Resampling.BICUBIC, expand=True)
+    except Exception:
+        pass
+    return image
+
 def create_transparent_drawing(img):
     original_rgb = img.convert("RGB")
     mask = extract_clean_drawing_mask(original_rgb)
     mask = remove_small_components(mask, min_area=18)
     mask = cv2.GaussianBlur(mask, (3, 3), 0)
     mask[mask < 18] = 0
+
     orig_arr = np.array(original_rgb)
     rgba_arr = np.dstack((orig_arr, mask))
     result = Image.fromarray(rgba_arr, "RGBA")
@@ -257,10 +316,13 @@ def create_transparent_drawing(img):
     if bbox:
         result = result.crop(bbox)
 
-    padding = 24
+    padding = 40
     padded = Image.new("RGBA", (result.width + padding * 2, result.height + padding * 2), (0, 0, 0, 0))
     padded.alpha_composite(result, (padding, padding))
-    return padded
+    result = padded
+
+    result = straighten_drawing(result)
+    return result
 
 # ============================================================
 # COLLISION & DECORATIVE HELPERS
@@ -810,7 +872,6 @@ if st.session_state["extracted_drawings"]:
 
     page_configs = {}
     with st.expander("Customize Each Page Individually", expanded=not apply_all):
-        # Allow configuring each page up to TOTAL_PAGES
         for p in range(1, TOTAL_PAGES + 1):
             assigned_drawing_idx = (p - 1) % len(rotated_drawings)
             assigned_drawing = rotated_drawings[assigned_drawing_idx]
