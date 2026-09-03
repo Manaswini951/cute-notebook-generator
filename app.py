@@ -16,7 +16,7 @@ from PIL import (
     ImageOps
 )
 
-# Set page configuration
+# Page configuration
 st.set_page_config(
     page_title="Custom Printable Notebook & Planner Generator",
     page_icon="📚",
@@ -34,7 +34,7 @@ PAGE_SIZES = {
 }
 
 DPI = 300
-MAX_SIZE = 1800
+MAX_SIZE = 1600
 
 # ============================================================
 # COLOR THEMES
@@ -162,7 +162,7 @@ def get_font(size, bold=False):
         return ImageFont.load_default()
 
 # ============================================================
-# ALGORITHMIC IMAGE PROCESSING
+# OPENCV BACKGROUND EXTRACTION
 # ============================================================
 
 def resize_image(img, max_size=MAX_SIZE):
@@ -257,14 +257,49 @@ def create_transparent_drawing(img):
     if bbox:
         result = result.crop(bbox)
 
-    padding = 30
+    padding = 24
     padded = Image.new("RGBA", (result.width + padding * 2, result.height + padding * 2), (0, 0, 0, 0))
     padded.alpha_composite(result, (padding, padding))
     return padded
 
 # ============================================================
-# DECORATIONS & PATTERNS
+# COLLISION & DECORATIVE HELPERS
 # ============================================================
+
+def intersects(box1, box2):
+    return not (box1[2] <= box2[0] or box1[0] >= box2[2] or box1[3] <= box2[1] or box1[1] >= box2[3])
+
+def place_non_overlapping_drawings(
+    canvas, drawings, count, min_w, max_w, padding, rng, occupied_boxes, page_w, page_h, alpha_mult=0.45
+):
+    placed_boxes = list(occupied_boxes)
+    for _ in range(count):
+        base_img = rng.choice(drawings)
+        img = base_img.copy()
+
+        rand_rot = rng.randint(-25, 25)
+        img = img.rotate(rand_rot, resample=Image.Resampling.BICUBIC, expand=True)
+
+        target_w = rng.randint(min_w, max_w)
+        scale = target_w / float(max(1, img.width))
+        target_h = max(1, int(img.height * scale))
+        img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+
+        alpha = img.getchannel("A")
+        alpha = alpha.point(lambda p: int(p * alpha_mult))
+        img.putalpha(alpha)
+
+        for _ in range(80):
+            x = rng.randint(padding, page_w - target_w - padding)
+            y = rng.randint(padding, page_h - target_h - padding)
+            candidate = (x, y, x + target_w, y + target_h)
+
+            if not any(intersects(candidate, b) for b in placed_boxes):
+                canvas.alpha_composite(img, (x, y))
+                placed_boxes.append(candidate)
+                break
+
+    return canvas
 
 def draw_star(draw, x, y, size, color):
     points = []
@@ -296,20 +331,15 @@ def draw_dashed_line(draw, x1, y1, x2, y2, fill, width=2, dash_len=18, gap_len=1
         return
     dx = (x2 - x1) / total_len
     dy = (y2 - y1) / total_len
-
     curr = 0
     while curr < total_len:
         end = min(curr + dash_len, total_len)
-        draw.line(
-            (x1 + dx * curr, y1 + dy * curr, x1 + dx * end, y1 + dy * end),
-            fill=fill, width=width
-        )
+        draw.line((x1 + dx * curr, y1 + dy * curr, x1 + dx * end, y1 + dy * end), fill=fill, width=width)
         curr += dash_len + gap_len
 
 def add_custom_decorations(canvas, allowed_objects, theme, rng, page_w, page_h, count_scale=1.0):
-    if not allowed_objects or "None" in allowed_objects:
+    if not allowed_objects:
         return canvas
-
     draw = ImageDraw.Draw(canvas, "RGBA")
     accent = theme.get("accent", (200, 200, 200))
 
@@ -340,80 +370,34 @@ def add_custom_decorations(canvas, allowed_objects, theme, rng, page_w, page_h, 
     return canvas
 
 # ============================================================
-# COLLISION-FREE PACKING HELPER (NON-OVERLAPPING PLACEMENT)
-# ============================================================
-
-def intersects(box1, box2):
-    # box = (x1, y1, x2, y2)
-    return not (box1[2] <= box2[0] or box1[0] >= box2[2] or box1[3] <= box2[1] or box1[1] >= box2[3])
-
-def place_non_overlapping_drawings(
-    canvas, drawings, count, min_w, max_w, padding, rng, occupied_boxes, page_w, page_h, alpha_mult=0.45
-):
-    placed_boxes = list(occupied_boxes)
-
-    for _ in range(count):
-        base_img = rng.choice(drawings)
-        img = base_img.copy()
-
-        rand_rot = rng.randint(-25, 25)
-        img = img.rotate(rand_rot, resample=Image.Resampling.BICUBIC, expand=True)
-
-        target_w = rng.randint(min_w, max_w)
-        scale = target_w / float(max(1, img.width))
-        target_h = max(1, int(img.height * scale))
-        img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
-
-        # Transparency
-        alpha = img.getchannel("A")
-        alpha = alpha.point(lambda p: int(p * alpha_mult))
-        img.putalpha(alpha)
-
-        # Attempt to find a non-overlapping spot
-        placed = False
-        for _ in range(80):
-            x = rng.randint(padding, page_w - target_w - padding)
-            y = rng.randint(padding, page_h - target_h - padding)
-            candidate = (x, y, x + target_w, y + target_h)
-
-            if not any(intersects(candidate, b) for b in placed_boxes):
-                canvas.alpha_composite(img, (x, y))
-                placed_boxes.append(candidate)
-                placed = True
-                break
-
-    return canvas
-
-# ============================================================
-# INTERIOR BACKGROUND GENERATORS (UNIQUE DESIGNS PER PAGE)
+# INTERIOR UNIQUE BACKGROUND GENERATOR
 # ============================================================
 
 def draw_page_background(page_num, theme, page_w, page_h, rng):
     bg = Image.new("RGBA", (page_w, page_h), theme["background"] + (255,))
     draw = ImageDraw.Draw(bg, "RGBA")
-
     design_idx = page_num % 6
 
-    if design_idx == 0:  # Corner Blobs
+    if design_idx == 0:
         draw.ellipse((-int(page_w * 0.15), -int(page_h * 0.1), int(page_w * 0.4), int(page_h * 0.25)), fill=theme["shape1"] + (110,))
         draw.ellipse((int(page_w * 0.65), int(page_h * 0.78), int(page_w * 1.2), int(page_h * 1.15)), fill=theme["shape2"] + (110,))
-    elif design_idx == 1:  # Organic Waves
+    elif design_idx == 1:
         draw.ellipse((-int(page_w * 0.25), int(page_h * 0.35), int(page_w * 0.35), int(page_h * 0.75)), fill=theme["shape1"] + (95,))
         draw.ellipse((int(page_w * 0.75), -int(page_h * 0.1), int(page_w * 1.25), int(page_h * 0.35)), fill=theme["shape2"] + (95,))
-    elif design_idx == 2:  # Polka Dot Matrix (Accent Faded)
+    elif design_idx == 2:
         step = int(page_w * 0.08)
         rad = max(4, int(page_w * 0.007))
         for x in range(step // 2, page_w, step):
             for y in range(step // 2, page_h, step):
                 draw.ellipse((x - rad, y - rad, x + rad, y + rad), fill=theme["shape1"] + (40,))
-    elif design_idx == 3:  # Geometric Modern Triangles
+    elif design_idx == 3:
         draw.polygon([(0, 0), (int(page_w * 0.45), 0), (0, int(page_h * 0.3))], fill=theme["shape1"] + (100,))
         draw.polygon([(page_w, page_h), (int(page_w * 0.55), page_h), (page_w, int(page_h * 0.7))], fill=theme["shape2"] + (100,))
-    elif design_idx == 4:  # Diagonal Stripe Hatch (Bottom Corner)
+    elif design_idx == 4:
         gap = int(page_w * 0.035)
         for d in range(0, int(page_w * 0.5), gap):
             draw.line((page_w - d, page_h, page_w, page_h - d), fill=theme["shape1"] + (60,), width=3)
-    else:  # Concentric Soft Rings (Top Corner)
+    else:
         cx, cy = int(page_w * 0.85), int(page_h * 0.12)
         for r in range(int(page_w * 0.08), int(page_w * 0.32), int(page_w * 0.08)):
             draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=theme["shape2"] + (80,), width=4)
@@ -421,26 +405,24 @@ def draw_page_background(page_num, theme, page_w, page_h, rng):
     return bg
 
 # ============================================================
-# COVER PAGE BUILDER
+# COVER BUILDER
 # ============================================================
 
 def create_dynamic_cover_page(
     drawings, child_name, role_title, month_str, year_str, theme, seed,
-    page_w, page_h, allowed_objects
+    page_w, page_h, allowed_objects, cover_note=""
 ):
     rng = random.Random(seed)
     cover = Image.new("RGBA", (page_w, page_h), theme["background"] + (255,))
     draw = ImageDraw.Draw(cover, "RGBA")
 
-    # Background Geometry
     shape_style = rng.choice(["bubbles", "waves", "geometrics"])
     if shape_style == "bubbles":
         for _ in range(8):
             rx = rng.randint(-100, page_w + 100)
             ry = rng.randint(-100, page_h + 100)
             rad = rng.randint(int(page_w * 0.15), int(page_w * 0.35))
-            col = rng.choice([theme["shape1"], theme["shape2"]])
-            draw.ellipse((rx - rad, ry - rad, rx + rad, ry + rad), fill=col + (110,))
+            draw.ellipse((rx - rad, ry - rad, rx + rad, ry + rad), fill=rng.choice([theme["shape1"], theme["shape2"]]) + (110,))
     elif shape_style == "waves":
         draw.ellipse((-int(page_w * 0.2), -int(page_h * 0.1), int(page_w * 0.6), int(page_h * 0.4)), fill=theme["shape1"] + (130,))
         draw.ellipse((int(page_w * 0.4), int(page_h * 0.6), int(page_w * 1.2), int(page_h * 1.1)), fill=theme["shape2"] + (130,))
@@ -448,16 +430,9 @@ def create_dynamic_cover_page(
         draw.polygon([(0, 0), (int(page_w * 0.7), 0), (0, int(page_h * 0.5))], fill=theme["shape1"] + (140,))
         draw.polygon([(page_w, page_h), (int(page_w * 0.3), page_h), (page_w, int(page_h * 0.5))], fill=theme["shape2"] + (140,))
 
-    # Reserved zone for title & subtitle badge (prevent drawings from covering it)
-    title_zone = (
-        int(page_w * 0.10),
-        int(page_h * 0.08),
-        int(page_w * 0.90),
-        int(page_h * 0.28)
-    )
+    title_zone = (int(page_w * 0.08), int(page_h * 0.07), int(page_w * 0.92), int(page_h * 0.32))
     occupied_boxes = [title_zone]
 
-    # Non-overlapping small, random extracted drawings
     if drawings:
         cover = place_non_overlapping_drawings(
             canvas=cover,
@@ -473,18 +448,15 @@ def create_dynamic_cover_page(
             alpha_mult=0.45
         )
 
-    # Decorative objects
     cover = add_custom_decorations(cover, allowed_objects, theme, rng, page_w, page_h, count_scale=1.0)
     draw = ImageDraw.Draw(cover, "RGBA")
 
-    # Outer border frame
     border_inset = int(page_w * 0.035)
     draw.rounded_rectangle(
         (border_inset, border_inset, page_w - border_inset, page_h - border_inset),
         radius=40, outline=theme["accent"] + (220,), width=8
     )
 
-    # Title & Subtitle Badge
     title_size = int(page_w * 0.045)
     subtitle_size = int(page_w * 0.024)
     title_font = get_font(title_size, bold=True)
@@ -498,12 +470,12 @@ def create_dynamic_cover_page(
     draw.text(((page_w - title_w) // 2 + 3, title_y + 3), notebook_title, font=title_font, fill=(0, 0, 0, 160))
     draw.text(((page_w - title_w) // 2, title_y), notebook_title, font=title_font, fill=theme["accent"])
 
-    badge_w, badge_h = int(page_w * 0.70), int(page_h * 0.08)
+    badge_w, badge_h = int(page_w * 0.72), int(page_h * 0.09)
     bx1 = (page_w - badge_w) // 2
     by1 = title_y + int(page_h * 0.05)
     draw.rounded_rectangle(
         (bx1, by1, bx1 + badge_w, by1 + badge_h),
-        radius=25, fill=(0, 0, 0, 180), outline=theme["accent"] + (220,), width=3
+        radius=25, fill=(0, 0, 0, 185), outline=theme["accent"] + (220,), width=3
     )
 
     line_1 = f"{child_name}" if child_name else "Notes & Planner"
@@ -518,12 +490,20 @@ def create_dynamic_cover_page(
     line_2 = " - ".join(date_parts)
 
     bbox_1 = draw.textbbox((0, 0), line_1, font=subtitle_font)
-    draw.text(((page_w - (bbox_1[2] - bbox_1[0])) // 2, by1 + int(badge_h * 0.18)), line_1, font=subtitle_font, fill=theme["text"])
+    draw.text(((page_w - (bbox_1[2] - bbox_1[0])) // 2, by1 + int(badge_h * 0.16)), line_1, font=subtitle_font, fill=theme["text"])
 
     if line_2:
         date_font = get_font(int(subtitle_size * 0.85), bold=True)
         bbox_2 = draw.textbbox((0, 0), line_2, font=date_font)
-        draw.text(((page_w - (bbox_2[2] - bbox_2[0])) // 2, by1 + int(badge_h * 0.55)), line_2, font=date_font, fill=theme["accent"])
+        draw.text(((page_w - (bbox_2[2] - bbox_2[0])) // 2, by1 + int(badge_h * 0.52)), line_2, font=date_font, fill=theme["accent"])
+
+    # Cover Note
+    if cover_note.strip():
+        note_font = get_font(int(page_w * 0.020), bold=False)
+        nb = draw.textbbox((0, 0), cover_note, font=note_font)
+        nw = nb[2] - nb[0]
+        note_y = page_h - int(page_h * 0.10)
+        draw.text(((page_w - nw) // 2, note_y), cover_note, font=note_font, fill=theme["accent"] + (240,))
 
     return cover.convert("RGB")
 
@@ -534,28 +514,25 @@ def create_dynamic_cover_page(
 def create_lined_notebook_page(
     drawing_list, active_drawing, theme, page_num, seed, page_w, page_h,
     page_style="Solid Ruled Lines", schedule_slots=None, custom_compartment=None,
-    watermark_mode="Centered Fit", allowed_objects=None
+    watermark_mode="Centered Fit", allowed_objects=None, extra_note=""
 ):
     rng = random.Random(seed + page_num)
 
-    # 1. Base Decorative Background (Unique pattern per page)
+    # Base Background Design
     page = draw_page_background(page_num, theme, page_w, page_h, rng)
 
-    # Add minor decorative objects if selected
     if allowed_objects:
-        page = add_custom_decorations(page, allowed_objects, theme, rng, page_w, page_h, count_scale=0.4)
+        page = add_custom_decorations(page, allowed_objects, theme, rng, page_w, page_h, count_scale=0.35)
 
-    # Page Margins
     top_y = int(page_h * 0.09)
     bottom_y = page_h - int(page_h * 0.06)
     margin_left = int(page_w * 0.07)
     margin_right = page_w - int(page_w * 0.07)
 
-    # 2. Transparent Box Overlay Layer
     box_layer = Image.new("RGBA", (page_w, page_h), (0, 0, 0, 0))
     box_draw = ImageDraw.Draw(box_layer, "RGBA")
 
-    # Header Bar Box
+    # Header Date Bar
     header_font = get_font(int(page_w * 0.016), bold=True)
     box_draw.rounded_rectangle(
         (page_w - int(page_w * 0.28), int(page_h * 0.04), page_w - int(page_w * 0.06), int(page_h * 0.075)),
@@ -563,7 +540,12 @@ def create_lined_notebook_page(
     )
     box_draw.text((page_w - int(page_w * 0.26), int(page_h * 0.048)), "DATE: ____ / ____ / ________", font=header_font, fill=theme["dark"])
 
-    # Custom Compartment
+    # Extra Page Note
+    if extra_note.strip():
+        en_font = get_font(int(page_w * 0.014), bold=False)
+        box_draw.text((margin_left, int(page_h * 0.05)), f"💡 {extra_note[:70]}", font=en_font, fill=theme["dark"])
+
+    # Custom Compartment Box
     if custom_compartment and custom_compartment.get("title"):
         title_text = custom_compartment["title"].upper()
         height_pct = custom_compartment.get("height_pct", 0.20)
@@ -594,14 +576,12 @@ def create_lined_notebook_page(
         available_height = bottom_y - top_y
         box_gap = int(page_h * 0.008)
         box_h = (available_height - (num_slots - 1) * box_gap) // num_slots
-
         label_font = get_font(int(page_w * 0.013), bold=True)
         slot_label_w = int(page_w * 0.18)
 
         for idx, slot in enumerate(schedule_slots):
             by1 = top_y + idx * (box_h + box_gap)
             by2 = by1 + box_h
-
             box_draw.rounded_rectangle((margin_left, by1, margin_right, by2), radius=12, fill=(255, 255, 255, 40), outline=theme["accent"] + (180,), width=2)
             box_draw.rounded_rectangle((margin_left, by1, margin_left + slot_label_w, by2), radius=12, fill=theme["background"] + (120,), outline=theme["accent"] + (150,), width=2)
             box_draw.text((margin_left + 12, by1 + int(box_h * 0.25)), str(slot), font=label_font, fill=theme["dark"])
@@ -616,8 +596,6 @@ def create_lined_notebook_page(
                         draw_dashed_line(box_draw, write_x1, line_y, write_x2, line_y, fill=theme["line_color"] + (180,), width=2)
                     else:
                         box_draw.line((write_x1, line_y, write_x2, line_y), fill=theme["line_color"] + (180,), width=2)
-
-    # Standard Ruled Lines
     else:
         if page_style != "Plain / Unruled Pages":
             line_spacing = int(page_h * 0.025)
@@ -626,27 +604,22 @@ def create_lined_notebook_page(
                     draw_dashed_line(box_draw, margin_left, y, margin_right, y, fill=theme["line_color"] + (220,), width=2)
                 else:
                     box_draw.line((margin_left, y, margin_right, y), fill=theme["line_color"] + (220,), width=3)
-
         box_draw.line((margin_left, top_y - 10, margin_left, bottom_y + 10), fill=(240, 120, 120, 180), width=4)
 
     footer_font = get_font(int(page_w * 0.015), bold=False)
     box_draw.text((page_w // 2 - 20, page_h - int(page_h * 0.035)), f"- {page_num} -", font=footer_font, fill=theme["dark"])
-
-    # Composite Box Layer
     page.alpha_composite(box_layer)
 
-    # 3. Watermark / Drawing Layer
+    # Watermark Placement Mode
     if watermark_mode == "Centered Fit" and active_drawing:
         faded = active_drawing.copy()
         max_wm_w, max_wm_h = int(page_w * 0.65), int(page_h * 0.45)
         scale = min(max_wm_w / faded.width, max_wm_h / faded.height)
         new_wm_size = (int(faded.width * scale), int(faded.height * scale))
         faded = faded.resize(new_wm_size, Image.Resampling.LANCZOS)
-
         alpha = faded.getchannel("A")
         alpha = alpha.point(lambda p: int(p * 0.22))
         faded.putalpha(alpha)
-
         wm_x = (page_w - faded.width) // 2
         wm_y = (page_h - faded.height) // 2
         page.alpha_composite(faded, (wm_x, wm_y))
@@ -656,14 +629,11 @@ def create_lined_notebook_page(
         scale = max(page_w / float(full_bg.width), page_h / float(full_bg.height))
         new_w, new_h = int(full_bg.width * scale), int(full_bg.height * scale)
         full_bg = full_bg.resize((new_w, new_h), Image.Resampling.LANCZOS)
-
         cx, cy = (new_w - page_w) // 2, (new_h - page_h) // 2
         full_bg = full_bg.crop((cx, cy, cx + page_w, cy + page_h))
-
         alpha = full_bg.getchannel("A")
         alpha = alpha.point(lambda p: int(p * 0.16))
         full_bg.putalpha(alpha)
-
         page.alpha_composite(full_bg, (0, 0))
 
     elif watermark_mode == "Multi-Scatter Watermark Grid" and drawing_list:
@@ -684,174 +654,200 @@ def create_lined_notebook_page(
     return page.convert("RGB")
 
 # ============================================================
-# STREAMLIT UI
+# STREAMLIT APPLICATION STATE & WORKFLOW
 # ============================================================
 
+if "extracted_drawings" not in st.session_state:
+    st.session_state["extracted_drawings"] = []
+if "drawing_filenames" not in st.session_state:
+    st.session_state["drawing_filenames"] = []
+
 st.title("📚 Custom Notebook & Daily Planner Generator")
-st.write("Turn your hand-drawn art into fully custom printable planners and notebooks with automatic background extraction, collision-free watermarks, dark covers, and varied layouts!")
+st.write("Convert hand drawings into custom notebooks with collision-free covers, transparent line boxes, per-page artwork layout selection, and live rotation controls.")
 
-uploaded_files = st.file_uploader(
-    "Upload Your Paintings / Drawings (JPG, PNG, WEBP):",
-    type=["jpg", "jpeg", "png", "webp"],
-    accept_multiple_files=True
-)
+# -------------------------------------------------------------
+# STEP 1: GLOBAL CONFIGURATION & UPLOAD
+# -------------------------------------------------------------
+st.header("Step 1: Document Settings & Upload Paintings")
 
-# Rotation Controls for Each Drawing
-user_rotations = {}
-if uploaded_files:
-    st.subheader("🔄 Image Rotation Controls")
-    st.caption("Rotate any artwork if it was uploaded sideways or upside down.")
-    cols = st.columns(min(4, len(uploaded_files)))
-    for idx, f in enumerate(uploaded_files):
-        with cols[idx % len(cols)]:
-            st.markdown(f"**Drawing #{idx + 1}** (`{f.name[:12]}...`)")
-            rot = st.selectbox(
-                f"Rotate #{idx + 1}:",
-                [0, 90, 180, 270],
-                key=f"rot_{idx}",
-                format_func=lambda x: f"{x}°"
-            )
-            user_rotations[idx] = rot
+col_u1, col_u2 = st.columns([1, 1])
 
-# Cover & Background Theme Options
-st.subheader("🎨 Theme & Decorative Object Preferences")
-col_t1, col_t2 = st.columns(2)
-
-with col_t1:
-    dark_theme_names = ["Random Surprise Theme"] + [t["name"] for t in DARK_THEMES]
-    chosen_dark_name = st.selectbox("Front Cover Page Theme:", dark_theme_names)
-
-with col_t2:
-    allowed_decorations = st.multiselect(
-        "Decorative Background Objects:",
-        ["Stars", "Sparkles", "Bubbles", "Geometric Crosses"],
-        default=["Stars", "Sparkles", "Bubbles"]
+with col_u1:
+    uploaded_files = st.file_uploader(
+        "Upload Drawing Photos / Paintings (JPG, PNG, WEBP):",
+        type=["jpg", "jpeg", "png", "webp"],
+        accept_multiple_files=True
     )
+    if st.button("⚡ Extract Drawings & Proceed to Customization", type="primary", use_container_width=True):
+        if not uploaded_files:
+            st.warning("Please upload at least one image first.")
+        else:
+            with st.spinner("Segmenting and isolating artwork from backgrounds..."):
+                extracted = []
+                fnames = []
+                for f in uploaded_files:
+                    raw_img = Image.open(f)
+                    raw_img = ImageOps.exif_transpose(raw_img).convert("RGB")
+                    resized = resize_image(raw_img, MAX_SIZE)
+                    trans_img = create_transparent_drawing(resized)
+                    extracted.append(trans_img)
+                    fnames.append(f.name)
+                st.session_state["extracted_drawings"] = extracted
+                st.session_state["drawing_filenames"] = fnames
+                st.success(f"Successfully extracted {len(extracted)} artwork(s)!")
 
-# Page Layout & Size
-st.subheader("📐 Page Size, Styles & Watermark Layout")
-col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+with col_u2:
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+        chosen_size_label = st.selectbox("Page Size:", list(PAGE_SIZES.keys()))
+        page_dimensions = PAGE_SIZES[chosen_size_label]
+        PAGE_W, PAGE_H = page_dimensions["width"], page_dimensions["height"]
 
-with col_s1:
-    chosen_size_label = st.selectbox("Select Page Size:", list(PAGE_SIZES.keys()))
-    page_dimensions = PAGE_SIZES[chosen_size_label]
-    PAGE_W, PAGE_H = page_dimensions["width"], page_dimensions["height"]
+        page_style = st.selectbox("Line Style:", ["Solid Ruled Lines", "Dashed Lines", "Plain / Unruled Pages"])
+    with col_s2:
+        page_count_preset = st.selectbox("Page Count:", ["Standard (20 Pages)", "Monthly Journal (30 Pages)", "Semester (100 Pages)", "Custom Page Count"])
+        if page_count_preset == "Standard (20 Pages)":
+            TOTAL_PAGES = 20
+        elif page_count_preset == "Monthly Journal (30 Pages)":
+            TOTAL_PAGES = 30
+        elif page_count_preset == "Semester (100 Pages)":
+            TOTAL_PAGES = 100
+        else:
+            TOTAL_PAGES = st.number_input("Custom Pages (1 to 100):", min_value=1, max_value=100, value=10)
 
-with col_s2:
-    page_style = st.selectbox(
-        "Page Line Style:",
-        ["Solid Ruled Lines", "Dashed Lines", "Plain / Unruled Pages"]
-    )
+    col_t1, col_t2 = st.columns(2)
+    with col_t1:
+        dark_theme_names = ["Random Surprise Theme"] + [t["name"] for t in DARK_THEMES]
+        chosen_dark_name = st.selectbox("Cover Page Color Theme:", dark_theme_names)
+    with col_t2:
+        allowed_decorations = st.multiselect(
+            "Decorative Objects:",
+            ["Stars", "Sparkles", "Bubbles", "Geometric Crosses"],
+            default=["Stars", "Sparkles", "Bubbles"]
+        )
 
-with col_s3:
-    watermark_mode = st.selectbox(
-        "Artwork Placement / Watermark:",
-        ["Centered Fit", "Full-Page Background Cover", "Multi-Scatter Watermark Grid"]
-    )
-
-with col_s4:
-    page_count_preset = st.selectbox(
-        "Number of Pages:",
-        ["Standard (20 Pages)", "Monthly Journal (30 Pages)", "Semester (100 Pages)", "Custom Page Count"]
-    )
-
-if page_count_preset == "Standard (20 Pages)":
-    TOTAL_PAGES = 20
-elif page_count_preset == "Monthly Journal (30 Pages)":
-    TOTAL_PAGES = 30
-elif page_count_preset == "Semester (100 Pages)":
-    TOTAL_PAGES = 100
-else:
-    TOTAL_PAGES = st.number_input("Enter Custom Page Count (1 to 200):", min_value=1, max_value=200, value=15)
-
-# Profile and Title
-st.subheader("👤 Cover Titles & Owner Info")
-col_a, col_b = st.columns(2)
-with col_a:
-    child_name = st.text_input("Notebook Owner Name:", "Alex")
+# Cover Metadata
+st.subheader("Cover Page Details")
+col_c1, col_c2, col_c3 = st.columns(3)
+with col_c1:
+    child_name = st.text_input("Owner Name:", "Alex")
+    cover_note = st.text_input("Cover Dedication / Tagline (Optional):", "Create. Plan. Inspire.")
+with col_c2:
+    role_type = st.selectbox("Purpose / Role:", ["Standard User", "School Student", "Office Worker", "PhD Student / Researcher", "Custom"])
+    role_title = role_type if role_type != "Custom" else st.text_input("Custom Role:", "Notes")
+with col_c3:
     month_str = st.selectbox("Month (Optional):", ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"])
-with col_b:
-    role_type = st.selectbox(
-        "Who is this notebook for?",
-        ["Standard User", "School Student", "Office Worker", "PhD Student / Researcher", "Custom"]
-    )
     year_str = st.text_input("Year (Optional):", "2026")
 
-role_title = ""
-if role_type == "School Student":
-    role_title = "School Student"
-elif role_type == "Office Worker":
-    role_title = "Office Worker"
-elif role_type == "PhD Student / Researcher":
-    role_title = "PhD Researcher"
-elif role_type == "Custom":
-    role_title = st.text_input("Custom Title/Role:", "Creative Notes")
-
 # Schedule & Compartment Checkboxes
-st.subheader("⏰ Segmented Daily Schedule / Compartments")
-enable_schedule = st.checkbox("Divide page into transparent time compartments / schedule boxes?", value=False)
+with st.expander("⏰ Schedule Compartments & Extra Sections (Optional)"):
+    enable_schedule = st.checkbox("Divide pages into segmented hourly schedule blocks?", value=False)
+    schedule_slots = []
+    if enable_schedule:
+        schedule_mode = st.radio("Time Format:", ["Hourly Intervals (e.g. 09:00 - 10:00)", "Periods (e.g. Period 1, Period 2)", "Custom Time Slots"])
+        if schedule_mode == "Hourly Intervals (e.g. 09:00 - 10:00)":
+            start_hour = st.number_input("Start Hour (0-23):", 0, 23, 9)
+            total_hours = st.slider("Total Segments:", 2, 10, 6)
+            schedule_slots = [f"{(start_hour + h) % 24:02d}:00 - {(start_hour + h + 1) % 24:02d}:00" for h in range(total_hours)]
+        elif schedule_mode == "Periods (e.g. Period 1, Period 2)":
+            num_periods = st.slider("Periods Count:", 2, 8, 6)
+            schedule_slots = [f"Period {p}" for p in range(1, num_periods + 1)]
+        else:
+            custom_input = st.text_area("Slots (comma-separated):", "Morning Routine, Deep Work, Review, Evening Focus")
+            schedule_slots = [s.strip() for s in custom_input.split(",") if s.strip()]
 
-schedule_slots = []
-if enable_schedule:
-    schedule_mode = st.radio(
-        "Choose Time Division Format:",
-        ["Hourly Intervals (e.g. 09:00 - 10:00)", "Periods (e.g. Period 1, Period 2)", "Custom Time Slots"]
-    )
-    if schedule_mode == "Hourly Intervals (e.g. 09:00 - 10:00)":
-        start_hour = st.number_input("Start Hour (24h format):", min_value=0, max_value=23, value=9)
-        total_hours = st.slider("Total Segments / Hours:", min_value=2, max_value=10, value=6)
-        for h in range(total_hours):
-            h1 = (start_hour + h) % 24
-            h2 = (start_hour + h + 1) % 24
-            schedule_slots.append(f"{h1:02d}:00 - {h2:02d}:00")
-    elif schedule_mode == "Periods (e.g. Period 1, Period 2)":
-        num_periods = st.slider("Number of Periods:", min_value=2, max_value=8, value=6)
-        for p in range(1, num_periods + 1):
-            schedule_slots.append(f"Period {p}")
-    else:
-        custom_input = st.text_area("Enter time slots separated by commas:", "Morning Focus, Period 1, Period 2, Lunch, Afternoon Lab, Evening Review")
-        schedule_slots = [s.strip() for s in custom_input.split(",") if s.strip()]
+    enable_custom_comp = st.checkbox("Add Extra Section Box (e.g. Priorities, Notes)?", value=False)
+    custom_compartment = None
+    if enable_custom_comp:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            comp_title = st.text_input("Section Title:", "Top Priorities")
+        with c2:
+            comp_pos = st.selectbox("Position:", ["Top of Page", "Bottom of Page"])
+        with c3:
+            comp_space = st.select_slider("Height:", ["15%", "20%", "25%", "30%"], value="20%")
+            space_pct = float(comp_space.replace("%", "")) / 100.0
+        custom_compartment = {"title": comp_title, "position": comp_pos, "height_pct": space_pct}
 
-enable_custom_comp = st.checkbox("Add a custom extra section (e.g. Top Priorities, Homework, Notes)?", value=False)
-custom_compartment = None
-if enable_custom_comp:
-    col_c1, col_c2, col_c3 = st.columns(3)
-    with col_c1:
-        comp_title = st.text_input("Compartment Title:", "Top Priorities")
-    with col_c2:
-        comp_pos = st.selectbox("Position on Page:", ["Top of Page", "Bottom of Page"])
-    with col_c3:
-        comp_space = st.select_slider("Height Space Allocation:", options=["15%", "20%", "25%", "30%"], value="20%")
-        space_pct = float(comp_space.replace("%", "")) / 100.0
+# -------------------------------------------------------------
+# STEP 2: ROTATION INSPECTION & PER-PAGE WATERMARK CUSTOMIZATION
+# -------------------------------------------------------------
+if st.session_state["extracted_drawings"]:
+    st.markdown("---")
+    st.header("Step 2: Inspect Extracted Artwork & Adjust Rotations")
+    st.info("Preview how your drawings look once isolated from the background. If any image appears sideways or upside down, rotate it below.")
 
-    custom_compartment = {
-        "title": comp_title,
-        "position": comp_pos,
-        "height_pct": space_pct
-    }
+    rotated_drawings = []
+    cols = st.columns(min(4, len(st.session_state["extracted_drawings"])))
 
-# Generation Trigger
-if uploaded_files:
-    if st.button(f"🚀 Generate {TOTAL_PAGES}-Page Custom Notebook PDF", type="primary", use_container_width=True):
-        processed_drawings = []
+    for idx, (img, fname) in enumerate(zip(st.session_state["extracted_drawings"], st.session_state["drawing_filenames"])):
+        with cols[idx % len(cols)]:
+            st.markdown(f"**Drawing #{idx + 1}**")
+            rot_deg = st.selectbox(
+                f"Rotate Image #{idx + 1}:",
+                [0, 90, 180, 270],
+                key=f"rot_ctrl_{idx}",
+                format_func=lambda x: f"{x}°"
+            )
+            rotated_img = img.rotate(-rot_deg, expand=True) if rot_deg != 0 else img
+            rotated_drawings.append(rotated_img)
+            st.image(rotated_img, caption=f"Extracted #{idx + 1} ({rot_deg}°)", use_container_width=True)
 
-        with st.spinner("Extracting drawings, applying rotations, and removing backgrounds..."):
-            for idx, file_obj in enumerate(uploaded_files):
-                raw_img = Image.open(file_obj)
-                raw_img = ImageOps.exif_transpose(raw_img).convert("RGB")
+    # ---------------------------------------------------------
+    # STEP 3: INDIVIDUAL PAGE WATERMARK & NOTES
+    # ---------------------------------------------------------
+    st.markdown("---")
+    st.header("Step 3: Per-Page Artwork Placement & Custom Notes")
 
-                # Apply user-selected rotation if specified
-                rot_deg = user_rotations.get(idx, 0)
-                if rot_deg != 0:
-                    raw_img = raw_img.rotate(-rot_deg, expand=True)
+    apply_all = st.checkbox("Use identical watermark layout for all pages?", value=True)
+    global_mode = "Centered Fit"
+    if apply_all:
+        global_mode = st.radio(
+            "Select placement style for all pages:",
+            ["Centered Fit", "Full-Page Background Cover", "Multi-Scatter Watermark Grid"],
+            horizontal=True
+        )
 
-                img = resize_image(raw_img, MAX_SIZE)
-                clean_trans = create_transparent_drawing(img)
-                processed_drawings.append(clean_trans)
+    page_configs = {}
+    with st.expander("Customize Each Page Individually", expanded=not apply_all):
+        # Allow configuring each page up to TOTAL_PAGES
+        for p in range(1, TOTAL_PAGES + 1):
+            assigned_drawing_idx = (p - 1) % len(rotated_drawings)
+            assigned_drawing = rotated_drawings[assigned_drawing_idx]
 
-        st.success(f"Processed {len(processed_drawings)} drawing(s) successfully!")
+            cp1, cp2, cp3 = st.columns([1, 2, 3])
+            with cp1:
+                st.image(assigned_drawing, caption=f"Page {p} Artwork (#{assigned_drawing_idx + 1})", width=90)
+            with cp2:
+                if apply_all:
+                    p_mode = global_mode
+                    st.write(f"**Page {p} Layout:** {p_mode}")
+                else:
+                    p_mode = st.selectbox(
+                        f"Page {p} Artwork Layout:",
+                        ["Centered Fit", "Full-Page Background Cover", "Multi-Scatter Watermark Grid"],
+                        key=f"p_mode_{p}"
+                    )
+            with cp3:
+                p_note = st.text_input(
+                    f"Page {p} Extra Note / Quote (Optional):",
+                    key=f"p_note_{p}",
+                    placeholder="e.g. Focus on goals, Chapter 3 notes, etc."
+                )
 
-        with st.spinner(f"Rendering unique interior designs and building {TOTAL_PAGES + 1} pages..."):
+            page_configs[p] = {
+                "drawing_idx": assigned_drawing_idx,
+                "mode": p_mode,
+                "note": p_note
+            }
+            st.markdown("<hr style='margin:4px 0;'>", unsafe_allow_html=True)
+
+    # ---------------------------------------------------------
+    # GENERATION & DOWNLOAD
+    # ---------------------------------------------------------
+    st.markdown("---")
+    if st.button(f"🚀 Generate Complete {TOTAL_PAGES}-Page Notebook PDF", type="primary", use_container_width=True):
+        with st.spinner("Rendering dynamic cover and styling interior pages..."):
             all_pdf_pages = []
 
             # Determine Dark Cover Theme
@@ -864,19 +860,34 @@ if uploaded_files:
 
             # Build Non-Overlapping Cover Page
             cover_page = create_dynamic_cover_page(
-                processed_drawings, child_name, role_title, month_str, year_str,
-                cover_theme, cover_seed, PAGE_W, PAGE_H, allowed_decorations
+                drawings=rotated_drawings,
+                child_name=child_name,
+                role_title=role_title,
+                month_str=month_str,
+                year_str=year_str,
+                theme=cover_theme,
+                seed=cover_seed,
+                page_w=PAGE_W,
+                page_h=PAGE_H,
+                allowed_objects=allowed_decorations,
+                cover_note=cover_note
             )
             all_pdf_pages.append(cover_page)
 
-            # Build Interior Pages with Unique Backgrounds
+            # Build Interior Pages
             for page_num in range(1, TOTAL_PAGES + 1):
-                active_drawing = processed_drawings[(page_num - 1) % len(processed_drawings)]
+                cfg = page_configs.get(page_num, {
+                    "drawing_idx": (page_num - 1) % len(rotated_drawings),
+                    "mode": global_mode,
+                    "note": ""
+                })
+
+                active_drawing = rotated_drawings[cfg["drawing_idx"]]
                 pastel_theme = PASTEL_THEMES[(page_num - 1) % len(PASTEL_THEMES)]
-                seed = 2000 + page_num
+                seed = 3000 + page_num
 
                 page_img = create_lined_notebook_page(
-                    drawing_list=processed_drawings,
+                    drawing_list=rotated_drawings,
                     active_drawing=active_drawing,
                     theme=pastel_theme,
                     page_num=page_num,
@@ -886,17 +897,20 @@ if uploaded_files:
                     page_style=page_style,
                     schedule_slots=schedule_slots if enable_schedule else None,
                     custom_compartment=custom_compartment if enable_custom_comp else None,
-                    watermark_mode=watermark_mode,
-                    allowed_objects=allowed_decorations
+                    watermark_mode=cfg["mode"],
+                    allowed_objects=allowed_decorations,
+                    extra_note=cfg["note"]
                 )
                 all_pdf_pages.append(page_img)
 
+        st.success("Notebook successfully rendered!")
+
         # Previews
-        st.subheader("🖼️ Page Previews")
-        col_p1, col_p2 = st.columns(2)
-        with col_p1:
-            st.image(all_pdf_pages[0], caption="Dynamic Cover Page Preview", use_container_width=True)
-        with col_p2:
+        st.subheader("🖼️ Output Previews")
+        pv1, pv2 = st.columns(2)
+        with pv1:
+            st.image(all_pdf_pages[0], caption="Cover Page Preview", use_container_width=True)
+        with pv2:
             st.image(all_pdf_pages[1], caption="Interior Page 1 Preview", use_container_width=True)
 
         # PDF Compilation
@@ -909,9 +923,9 @@ if uploaded_files:
             append_images=all_pdf_pages[1:]
         )
 
-        st.subheader("📥 Download Printable PDF")
+        st.subheader("📥 Download Your Document")
         st.download_button(
-            label=f"Download Complete {TOTAL_PAGES + 1}-Page Notebook PDF",
+            label=f"Download {TOTAL_PAGES + 1}-Page PDF",
             data=pdf_buf.getvalue(),
             file_name=f"{child_name}_Custom_Notebook_{TOTAL_PAGES}_Pages.pdf",
             mime="application/pdf",
